@@ -139,6 +139,49 @@ npm run build:grammars          # 克隆锁定的 tree-sitter tag、构建 WASM�
 **管理** —— `/plugins list`、`/plugins info tree-lens`，或用
 `/plugins mcp disable tree-lens tree-lens` 停用其 MCP 服务。
 
+## 与子代理（sub-agent）协作使用
+
+tree-lens 最大的收益在于上下文节省：把检索工作委派给只读子代理，主对话里拿回的是结论，
+而不是一堆原始 JSON dump。
+
+**规则一 —— `index_workspace` 只归主 agent。** 子代理启动时没有任何上下文，只能看到自己的
+工具列表，所以硬保证是工具白名单而不是提示词：定义一个工具里不含 `index_workspace` 的只读
+代理，例如 `.kimi-code/agents/tree-lens-reader.md`：
+
+```markdown
+---
+name: tree-lens-reader
+description: 只读代码检索子代理，通过 tree-lens 做结构化符号/引用/调用点查询，禁止重建索引
+whenToUse: 主 agent 已建好索引、需要精确符号定位或调用点检索时委派
+tools:
+  - Read
+  - Grep
+  - Glob
+  - mcp__plugin-tree-lens_tree-lens__find_references
+  - mcp__plugin-tree-lens_tree-lens__go_to_definition
+  - mcp__plugin-tree-lens_tree-lens__index_status
+  - mcp__plugin-tree-lens_tree-lens__callers
+  - mcp__plugin-tree-lens_tree-lens__callees
+---
+
+你是只读检索代理。索引由主 agent 负责，你没有 index_workspace 工具，不得尝试重建索引。
+
+使用规则：
+- 存在多个索引时，调用 find_references / callers / callees 必须显式传 root 参数。
+- 交付前必须调用一次 index_status 确认索引状态（root / index_version），
+  并在结果中报告所用索引的 root 与 index_version。
+- 交付物只允许：结论 + `file:line` 引用列表 + 版本核对结果；
+  禁止粘贴原始 JSON dump 或代码大段。
+- find_references/callers/callees 是纯名字匹配，模糊命中必须用 Read 复核关键结果后再下结论。
+```
+
+**规则二 —— 把子代理当成刚进门的同事来交代任务。** 它看不到你们的对话，每个任务提示都应写明：
+
+- 涉及文件 / 索引 root 的绝对路径
+- 要调用的确切工具名，以及该传哪个 `root`
+- "下结论前先调 `index_status` 核对 `index_version`"
+- 交付物格式：结论 + `file:line` 引用 + 所用的 `index_version`
+
 ## 常见问题
 
 - **工具没出现** —— 先执行 `/reload`；用 `/plugins info tree-lens` 查看诊断信息。

@@ -153,6 +153,54 @@ Built-in audit presets cover `eval`/`exec`, subprocess with `shell`, `pickle`/`m
 **Manage it** — `/plugins list`, `/plugins info tree-lens`, or disable its MCP server with
 `/plugins mcp disable tree-lens tree-lens`.
 
+## Using it with sub-agents
+
+The biggest payoff of tree-lens is context savings: delegate the lookups to a read-only
+sub-agent and get conclusions back instead of raw JSON dumps in the main conversation.
+
+**Rule 1 — only the main agent runs `index_workspace`.** Sub-agents start with zero context
+and only see their tool list, so the hard guarantee is the tool whitelist, not prompts:
+define a read-only agent whose tools omit `index_workspace`, e.g.
+`.kimi-code/agents/tree-lens-reader.md`:
+
+```markdown
+---
+name: tree-lens-reader
+description: Read-only code-retrieval sub-agent; structured symbol/reference/call-site
+  queries via tree-lens; must not rebuild indexes
+whenToUse: delegate when the main agent has already indexed the workspace and needs
+  precise symbol location or call-site retrieval
+tools:
+  - Read
+  - Grep
+  - Glob
+  - mcp__plugin-tree-lens_tree-lens__find_references
+  - mcp__plugin-tree-lens_tree-lens__go_to_definition
+  - mcp__plugin-tree-lens_tree-lens__index_status
+  - mcp__plugin-tree-lens_tree-lens__callers
+  - mcp__plugin-tree-lens_tree-lens__callees
+---
+
+You are a read-only retrieval agent. Indexing is the main agent's job; you have no
+`index_workspace` tool and must not try to rebuild indexes.
+
+Rules:
+- With multiple indexes, find_references / callers / callees MUST pass an explicit root.
+- Before concluding, call index_status once and report the root + index_version you used.
+- Deliverables: conclusions + `file:line` references + the version check. No raw JSON
+  dumps, no large code blocks.
+- find_references/callers/callees are name-based; verify key hits with Read before
+  drawing conclusions.
+```
+
+**Rule 2 — brief the sub-agent like a colleague.** It has not seen your conversation.
+Every task prompt should spell out:
+
+- absolute paths of the files/roots involved
+- the exact tool names to call and which `root` to pass
+- "re-check `index_status` and compare `index_version` before concluding"
+- the deliverable format: conclusions + `file:line` + the `index_version` used
+
 ## Troubleshooting
 
 - **Tools don't show up** — run `/reload`; check `/plugins info tree-lens` for diagnostics.
