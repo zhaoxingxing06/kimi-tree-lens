@@ -57,7 +57,7 @@ A managed plugin for [Kimi Code](https://www.kimi.com). Originally developed as 
 | `ast_search` | Run a tree-sitter query (S-expression pattern) against a file |
 | `index_workspace` | Parse all supported sources under a directory into a symbol index |
 | `find_references` / `go_to_definition` | Name-based navigation over the index |
-| `callers` / `callees` | Heuristic call-graph over the index |
+| `callers` / `callees` | Heuristic call-graph over the index; hits carry language + receiver, optional file/language filters |
 | `index_status` | Index state, totals, watcher status |
 | `list_presets` / `preset_search` | Built-in audit queries (eval/exec, subprocess, innerHTML, JDBC...) |
 | `get_node_types` | Grammar node types and fields, for writing correct query patterns |

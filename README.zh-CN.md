@@ -57,7 +57,7 @@
 | `ast_search` | 对文件执行 tree-sitter 查询（S-expression 模式） |
 | `index_workspace` | 解析目录下所有受支持的源码，构建符号索引 |
 | `find_references` / `go_to_definition` | 基于索引的符号跳转与引用查找 |
-| `callers` / `callees` | 基于索引的启发式调用图 |
+| `callers` / `callees` | 基于索引的启发式调用图；结果带语言与调用接收者，支持 file/language 过滤 |
 | `index_status` | 查看索引状态、总量与 watcher |
 | `list_presets` / `preset_search` | 内置审计查询（eval/exec、subprocess、innerHTML、JDBC……） |
 | `get_node_types` | 列出语法的节点类型与字段，用于编写正确的查询模式 |

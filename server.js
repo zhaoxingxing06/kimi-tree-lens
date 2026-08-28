@@ -355,7 +355,7 @@ async function runTool(op, args) {
   }
 }
 
-const server = new McpServer({ name: "tree-lens", version: "0.1.0" });
+const server = new McpServer({ name: "tree-lens", version: "0.2.0" });
 
 try {
   server.server.setNotificationHandler(RootsListChangedNotificationSchema, () => {
@@ -542,9 +542,11 @@ server.registerTool(
   {
     title: "Find call sites of a function",
     description:
-      "Heuristic (name-based, within indexed workspace) call sites of a function: each hit gives file, line and enclosing caller function. Requires index_workspace first.",
+      "Heuristic (name-based, within indexed workspace) call sites of a function: each hit gives file, line, language and enclosing caller function (plus receiver object for member calls). Accepts optional file/language filters. Requires index_workspace first.",
     inputSchema: {
       name: z.string().describe("callee function name"),
+      file: z.string().optional().describe("restrict to call sites in this file"),
+      language: z.enum(SUPPORTED).optional().describe("restrict to one language"),
       root: z
         .string()
         .optional()
@@ -561,9 +563,11 @@ server.registerTool(
   {
     title: "Find functions called by a function",
     description:
-      "Heuristic (name-based, within indexed workspace) callees of a function: call sites inside the function body grouped by callee name. Requires index_workspace first.",
+      "Heuristic (name-based, within indexed workspace) callees of a function: call sites inside the function body grouped by callee name, with file, language and receiver object per hit. Accepts optional file/language filters. Requires index_workspace first.",
     inputSchema: {
       name: z.string().describe("caller function name"),
+      file: z.string().optional().describe("restrict to call sites in this file"),
+      language: z.enum(SUPPORTED).optional().describe("restrict to one language"),
       root: z
         .string()
         .optional()
