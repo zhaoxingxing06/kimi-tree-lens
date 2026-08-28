@@ -84,7 +84,12 @@ try {
   check("find_references rootA total 13", r.ok === true && r.total === 13, r);
 
   r = parse(await c.callTool({ name: "find_references", arguments: { name: "dupref", root: emptyDir } }));
-  check("unindexed root rejected", r.ok === false && /no index for root/.test(r.error), r);
+  check("unindexed root auto-indexed empty", r.ok === true && r.total === 0 && r.auto_indexed === true, r);
+
+  r = parse(await c.callTool({ name: "find_references", arguments: { name: "c_two", root: rootC } }));
+  check("unindexed root auto-indexed with content", r.ok === true && r.total === 1 && r.auto_indexed === true && r.index_root === realC, r);
+  r = parse(await c.callTool({ name: "find_references", arguments: { name: "c_one", root: rootC } }));
+  check("auto-indexed root not rebuilt", r.ok === true && r.total === 1 && r.auto_indexed !== true, r);
 
   // #1 pagination
   r = parse(await c.callTool({ name: "find_references", arguments: { name: "dupref", root: rootA, limit: 5 } }));
@@ -125,7 +130,7 @@ try {
   r = parse(await c.callTool({ name: "index_status", arguments: {} }));
   check(
     "index_status most recent + available_roots",
-    r.ok === true && r.root === realC && Array.isArray(r.available_roots) && r.available_roots.length === 3,
+    r.ok === true && r.root === realC && Array.isArray(r.available_roots) && r.available_roots.length === 4,
     r
   );
   r = parse(await c.callTool({ name: "index_status", arguments: { root: rootA } }));

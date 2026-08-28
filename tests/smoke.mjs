@@ -220,7 +220,18 @@ await withClient(
 });
 
 await withClient({ TREE_SITTER_MCP_CACHE_DIR: tmpCache }, async (c) => {
-  let r = parse(await c.callTool({ name: "list_definitions", arguments: { file: JAVA } }));
+  let r = parse(await c.callTool({ name: "find_references", arguments: { name: "whatever" } }));
+  check("no root + no index explicit error", r.ok === false && /no root could be inferred/.test(r.error) && r.hint, r);
+
+  r = parse(await c.callTool({
+    name: "go_to_definition",
+    arguments: { name: "risky", file: new URL("./fixtures/audit.py", import.meta.url).pathname },
+  }));
+  check("auto-index from file root", r.ok === true && r.count >= 1 && r.auto_indexed === true, r);
+  r = parse(await c.callTool({ name: "find_references", arguments: { name: "risky" } }));
+  check("auto-indexed root answers without root", r.ok === true && r.total >= 1 && r.auto_indexed !== true, r);
+
+  r = parse(await c.callTool({ name: "list_definitions", arguments: { file: JAVA } }));
   check("auto-root discovery accepts project file", r.ok === true && r.roots_source === "discovered" && r.path_policy === "confined", r);
 
   const tmpNoMarker = fsSync.mkdtempSync(path.join(os.tmpdir(), "ts-nomarker-"));
@@ -296,6 +307,36 @@ await withClient(
   }));
   check("user preset searchable", r.ok === true && r.source === "user" && r.captures >= 1, r);
 });
+await withClient(
+  {
+    TREE_SITTER_MCP_ALLOW_UNCONFINED: "1",
+    TREE_SITTER_MCP_CACHE_DIR: tmpCache,
+  },
+  async (c) => {
+    const tmpLang = fsSync.mkdtempSync(path.join(os.tmpdir(), "ts-lang-"));
+    fsSync.writeFileSync(path.join(tmpLang, "ok.py"), "def probe_fn():\n    pass\n");
+    fsSync.writeFileSync(path.join(tmpLang, "skip.js"), "function probe_fn() {}\n");
+
+    let r = parse(await c.callTool({ name: "index_workspace", arguments: { root: tmpLang } }));
+    check(
+      "index reports unsupported skip",
+      r.ok === true && r.unsupported_skipped?.count === 1 && r.unsupported_skipped?.extensions[".js"] === 1 && !!r.hint,
+      r
+    );
+
+    r = parse(await c.callTool({ name: "find_references", arguments: { name: "___nope___", root: tmpLang } }));
+    check("zero-result carries unsupported note", r.ok === true && r.total === 0 && r.unsupported_skipped?.count === 1, r);
+
+    r = parse(await c.callTool({ name: "go_to_definition", arguments: { name: "___nope___", root: tmpLang } }));
+    check("not_found mentions unsupported", r.ok === false && /unsupported extensions/.test(r.error), r);
+
+    r = parse(await c.callTool({ name: "index_status", arguments: { root: tmpLang } }));
+    check("index_status exposes unsupported", r.ok === true && r.unsupported_skipped?.count === 1, r);
+
+    fsSync.rmSync(tmpLang, { recursive: true, force: true });
+  }
+);
+
 fsSync.rmSync(tmpUser, { recursive: true, force: true });
 fsSync.rmSync(tmpCache, { recursive: true, force: true });
 fsSync.rmSync(tmpPersist, { recursive: true, force: true });

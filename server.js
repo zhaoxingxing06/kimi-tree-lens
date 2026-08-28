@@ -31,6 +31,7 @@ const HINTS = {
   input: "check the path/extension",
   timeout: "narrow the pattern or use Read instead",
   not_found: "run list_definitions first to get exact definition names",
+  no_index: "run index_workspace(root) first, then re-run this query with the same root",
   query_syntax: 'probe node types with pattern "(identifier) @id"',
   internal: "fall back to Read/Grep for this file",
 };
@@ -43,7 +44,35 @@ const INDEX_OPS = new Set(["find_references", "go_to_definition", "index_status"
 // one index per root; each index lives pinned to its own worker
 const indexes = new Map(); // normPath(rootAbs) -> { entry: workerEntry|null, root: abs }
 const indexHolders = new Set(); // workers currently authoritative for some root
+const pendingIndex = new Map(); // normPath(rootAbs) -> Promise<workerEntry|null>
 let lastIndexRoot = null;
+
+function registerIndex(rootAbs, entry) {
+  const key = normPath(rootAbs);
+  const prev = indexes.get(key);
+  if (prev?.entry) indexHolders.delete(prev.entry);
+  indexHolders.add(entry);
+  indexes.set(key, { entry, root: rootAbs });
+  lastIndexRoot = rootAbs;
+}
+
+async function autoBuildIndex(rootAbs) {
+  const key = normPath(rootAbs);
+  if (pendingIndex.has(key)) return pendingIndex.get(key);
+  const p = (async () => {
+    const { msg, entry } = await callWorker(
+      "index_workspace",
+      { root: rootAbs, softDeadlineMs: Math.floor(DEADLINES.index_workspace * SOFT_RATIO) },
+      DEADLINES.index_workspace,
+      acquireFreeIndexWorker()
+    );
+    if (!msg.ok || !entry) return null;
+    registerIndex(rootAbs, entry);
+    return entry;
+  })().finally(() => pendingIndex.delete(key));
+  pendingIndex.set(key, p);
+  return p;
+}
 
 function acquireFreeIndexWorker() {
   return workers.find((e) => !indexHolders.has(e)) ?? spawnWorker();
@@ -54,11 +83,9 @@ async function ensureIndex(op, requestedRoot) {
   let rec = null;
   if (requestedRoot !== undefined) {
     rec = indexes.get(normPath(path.resolve(requestedRoot)));
-    if (!rec) {
-      return { error: `no index for root ${requestedRoot}; available: ${[...indexes.keys()].join(", ") || "(none)"}; run index_workspace first` };
-    }
+    if (!rec) return { build: requestedRoot };
   } else {
-    if (indexes.size === 0) return { entry: null };
+    if (indexes.size === 0) return { build: null };
     if (indexes.size === 1) rec = indexes.values().next().value;
     else return { error: `multiple indexes exist (${[...indexes.keys()].join(", ")}); pass root to choose one` };
   }
@@ -258,6 +285,7 @@ async function runTool(op, args) {
     const rawPath = args.file ?? args.root;
     let pathPolicy = null;
     let rootsSource = null;
+    let policyRoot = null;
     let abs = null;
     if (rawPath !== undefined) {
       const isDir = args.file === undefined;
@@ -279,7 +307,10 @@ async function runTool(op, args) {
       }
       pathPolicy = policy.unconfined ? "unconfined" : "confined";
       rootsSource = policy.source;
-      if (policy.root && !policy.unconfined) payload.confineRoot = policy.root;
+      if (policy.root && !policy.unconfined) {
+        payload.confineRoot = policy.root;
+        policyRoot = policy.root;
+      }
       if (args.file !== undefined) {
         payload.file = abs;
         const st = await fs.stat(abs).catch(() => null);
@@ -311,6 +342,7 @@ async function runTool(op, args) {
     const soft = Math.floor(hard * SOFT_RATIO);
     payload.softDeadlineMs = soft;
     let sticky = null;
+    let autoIndexed = false;
     if (op === "index_workspace") {
       const key = normPath(payload.root);
       const prev = indexes.get(key);
@@ -323,20 +355,30 @@ async function runTool(op, args) {
       }
       sticky = rec.entry;
     } else if (INDEX_OPS.has(op)) {
+      if (payload.root === undefined && policyRoot) payload.root = policyRoot;
       const r = await ensureIndex(op, payload.root);
       if (r.error) return respond({ ok: false, error: r.error, hint: HINTS.internal });
-      sticky = r.entry;
+      if (r.build !== undefined) {
+        if (r.build === null) {
+          return respond({
+            ok: false,
+            error: "no index exists yet and no root could be inferred from the call; run index_workspace(root) first",
+            hint: HINTS.no_index,
+          });
+        }
+        const entry = await autoBuildIndex(r.build);
+        if (!entry) {
+          return respond({ ok: false, error: `auto-index of ${r.build} failed; run index_workspace on that root to see the error`, hint: HINTS.internal });
+        }
+        sticky = entry;
+        autoIndexed = true;
+      } else {
+        sticky = r.entry;
+      }
     }
     const { msg, entry } = await callWorker(op, payload, hard, sticky);
     if (msg.ok) {
-      if (op === "index_workspace") {
-        const key = normPath(payload.root);
-        const prev = indexes.get(key);
-        if (prev?.entry) indexHolders.delete(prev.entry);
-        indexHolders.add(entry);
-        indexes.set(key, { entry, root: payload.root });
-        lastIndexRoot = payload.root;
-      }
+      if (op === "index_workspace") registerIndex(payload.root, entry);
       if (op === "index_status" && indexes.size > 0) {
         msg.data.available_roots = [...indexes.values()].map((rec) => rec.root);
       }
@@ -344,6 +386,7 @@ async function runTool(op, args) {
       return respond({
         ok: true,
         ...(abs !== null ? { file: abs } : {}),
+        ...(autoIndexed ? { auto_indexed: true } : {}),
         ...(pathPolicy ? { path_policy: pathPolicy } : {}),
         ...(rootsSource ? { roots_source: rootsSource } : {}),
         ...msg.data,
@@ -434,7 +477,7 @@ server.registerTool(
   {
     title: "Find identifier occurrences",
     description:
-      "Name-based (syntactic, not scope-resolved) occurrences of an identifier across the indexed workspace, marking definition sites. Requires index_workspace first.",
+      "Name-based (syntactic, not scope-resolved) occurrences of an identifier across the indexed workspace, marking definition sites. If the index for root does not exist yet it is built automatically (first call may be slow).",
     inputSchema: {
       name: z.string().describe("identifier name to find"),
       root: z
@@ -453,7 +496,7 @@ server.registerTool(
   {
     title: "Find definitions by name",
     description:
-      "Definition sites of a name across the indexed workspace, nearest to the optional `file` first. Requires index_workspace first.",
+      "Definition sites of a name across the indexed workspace, nearest to the optional `file` first. If the index for root does not exist yet it is built automatically (first call may be slow).",
     inputSchema: {
       name: z.string().describe("definition name"),
       file: z.string().optional().describe("reference file for proximity ranking"),
@@ -473,7 +516,7 @@ server.registerTool(
   {
     title: "Report index status",
     description:
-      "Report current workspace index state: root, version, totals, watcher active, pending dirty paths. Requires index_workspace first. Without root, reports the most recently built index plus all available roots.",
+      "Report current workspace index state: root, version, totals, watcher active, pending dirty paths. Without root, reports the most recently built index plus all available roots.",
     inputSchema: {
       root: z.string().optional().describe("index root to report; required when several indexes exist"),
     },
@@ -542,7 +585,7 @@ server.registerTool(
   {
     title: "Find call sites of a function",
     description:
-      "Heuristic (name-based, within indexed workspace) call sites of a function: each hit gives file, line, language and enclosing caller function (plus receiver object for member calls). Accepts optional file/language filters. Requires index_workspace first.",
+      "Heuristic (name-based, within indexed workspace) call sites of a function: each hit gives file, line, language and enclosing caller function (plus receiver object for member calls). Accepts optional file/language filters. If the index for root does not exist yet it is built automatically.",
     inputSchema: {
       name: z.string().describe("callee function name"),
       file: z.string().optional().describe("restrict to call sites in this file"),
@@ -563,7 +606,7 @@ server.registerTool(
   {
     title: "Find functions called by a function",
     description:
-      "Heuristic (name-based, within indexed workspace) callees of a function: call sites inside the function body grouped by callee name, with file, language and receiver object per hit. Accepts optional file/language filters. Requires index_workspace first.",
+      "Heuristic (name-based, within indexed workspace) callees of a function: call sites inside the function body grouped by callee name, with file, language and receiver object per hit. Accepts optional file/language filters. If the index for root does not exist yet it is built automatically.",
     inputSchema: {
       name: z.string().describe("caller function name"),
       file: z.string().optional().describe("restrict to call sites in this file"),
