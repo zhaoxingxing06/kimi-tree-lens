@@ -41,16 +41,26 @@ Because the tool is pointed at arbitrary code by an LLM agent, it is hardened ac
 path confinement with read-time re-validation, SHA-256-pinned grammar WASMs, and hard resource caps.
 It was originally developed as a managed plugin for our own Kimi Code setup and is now open-sourced.
 
-## Scope: no editor, no LSP
+## Design philosophy
 
-This plugin is not a VSCode-like code editor, and integrating an LSP language server is out of
-scope — now and in the future.
+**Structure first.** Grep lives in the world of strings; the meaning of code lives in the syntax
+tree. "Every `executeQuery` call" is one string away, but "every assignment to a field inside a
+constructor" can only be expressed as a tree query. This plugin hands the agent the syntax tree
+as a queryable database.
 
-LSP serves *humans inside editors*: completion, diagnostics, sessions — machinery for typing
-efficiently in an IDE. This plugin serves *an agent beside a codebase*: it treats the syntax tree
-as a database to query — outlines, definitions, references, call graphs, dangerous-pattern audits.
-tree-sitter's granularity is exactly right for that; layering LSP on top would add weight without
-adding power.
+**Read on demand.** An agent's most expensive resource is context. The outline-first,
+definition-second read path turns "look at one method" from ingesting a whole file into one
+precise hit.
+
+**Safe by default.** Agents point this tool at arbitrary code — path confinement, read-time
+re-validation, hash pinning and resource caps are not features bolted on; they are the price of
+admission.
+
+**Not an editor, never LSP.** This plugin is not a VSCode-like code editor, and integrating an
+LSP language server is out of scope — now and in the future. LSP serves *humans inside editors*:
+completion, diagnostics, sessions — machinery for typing efficiently in an IDE. This plugin
+serves *an agent beside a codebase*; tree-sitter's granularity is exactly right for that, and
+layering LSP on top would add weight without adding power.
 
 > Thanks to pi — it embraced me once, and that's how I came to understand AI.
 > (In Chinese, "AI" sounds exactly like the word for *love*.)
@@ -188,6 +198,11 @@ This plugin is designed to be pointed at arbitrary code by an LLM agent:
 npm test               # 41-case smoke suite (confinement, timeouts, cache, watcher...)
 npm run test:corpus    # parses official tree-sitter corpora and diffs against expected trees
 ```
+
+## Roadmap
+
+- An npm package for the **Pi coding open-source extension community** is planned — hit the ✨
+  Star button to stay tuned.
 
 ## License
 
