@@ -1,0 +1,13 @@
+{
+  "name": "tree-lens",
+  "version": "0.1.0",
+  "description": "Syntax-tree X-ray for Kimi Code: multi-language structural code navigation via tree-sitter (WASM)",
+  "skills": "./skills/",
+  "sessionStart": { "skill": "code-search" },
+  "mcpServers": {
+    "tree-lens": {
+      "command": "node",
+      "args": ["./server.js"]
+    }
+  }
+}

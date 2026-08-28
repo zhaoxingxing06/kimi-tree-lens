@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="280" viewBox="0 0 1200 280">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#0c1526"/>
+      <stop offset="1" stop-color="#111d36"/>
+    </linearGradient>
+    <linearGradient id="edge" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#a78bfa"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="280" rx="52" fill="url(#bg)"/>
+  <rect x="1.5" y="1.5" width="1197" height="277" rx="50.5" fill="none" stroke="#243350" stroke-width="3"/>
+
+  <!-- mark: syntax tree + lens -->
+  <g stroke="url(#edge)" stroke-width="7" stroke-linecap="round" fill="none">
+    <path d="M138 74  L92  138"/>
+    <path d="M138 74  L184 138"/>
+    <path d="M92  138 L66  196"/>
+    <path d="M92  138 L120 194"/>
+    <path d="M184 138 L158 196"/>
+    <path d="M184 138 L212 196"/>
+  </g>
+  <circle cx="138" cy="70" r="17" fill="#38bdf8"/>
+  <circle cx="92"  cy="138" r="12" fill="#60a5fa"/>
+  <circle cx="184" cy="138" r="12" fill="#a78bfa"/>
+  <circle cx="66"  cy="199" r="8" fill="#3b4a6b"/>
+  <circle cx="158" cy="199" r="8" fill="#3b4a6b"/>
+  <circle cx="212" cy="199" r="8" fill="#3b4a6b"/>
+  <circle cx="120" cy="194" r="9" fill="#f472b6"/>
+  <circle cx="120" cy="194" r="25" fill="#ffffff" fill-opacity="0.07"/>
+  <circle cx="120" cy="194" r="25" fill="none" stroke="#e2e8f0" stroke-width="6.5"/>
+  <path d="M138 212 L165 238" stroke="#e2e8f0" stroke-width="8" stroke-linecap="round"/>
+
+  <!-- wordmark -->
+  <text x="290" y="152" font-family="'SF Mono', Menlo, Consolas, 'Courier New', monospace"
+        font-size="76" font-weight="700" letter-spacing="1">
+    <tspan fill="#8b949e">kimi-</tspan><tspan fill="#38bdf8">tree</tspan><tspan fill="#a78bfa">-lens</tspan>
+  </text>
+  <text x="293" y="212" font-family="'SF Mono', Menlo, Consolas, 'Courier New', monospace"
+        font-size="30" fill="#8b949e">syntax-tree X-ray for Kimi Code</text>
+</svg>

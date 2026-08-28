@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0c1526"/>
+      <stop offset="1" stop-color="#111d36"/>
+    </linearGradient>
+    <linearGradient id="edge" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#a78bfa"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.42" r="0.62">
+      <stop offset="0" stop-color="#38bdf8" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#38bdf8" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- app-icon background -->
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#bg)"/>
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#glow)"/>
+  <rect x="19" y="19" width="474" height="474" rx="109" fill="none" stroke="#243350" stroke-width="3"/>
+
+  <!-- syntax-tree edges -->
+  <g stroke="url(#edge)" stroke-width="11" stroke-linecap="round" fill="none">
+    <path d="M256 148 L148 268"/>
+    <path d="M256 148 L364 268"/>
+    <path d="M148 268 L96 384"/>
+    <path d="M148 268 L206 382"/>
+    <path d="M364 268 L306 384"/>
+    <path d="M364 268 L418 384"/>
+  </g>
+
+  <!-- nodes -->
+  <circle cx="256" cy="140" r="30" fill="#38bdf8"/>
+  <circle cx="256" cy="140" r="30" fill="none" stroke="#7dd3fc" stroke-width="4" stroke-opacity="0.6"/>
+  <circle cx="148" cy="268" r="22" fill="#60a5fa"/>
+  <circle cx="364" cy="268" r="22" fill="#a78bfa"/>
+  <circle cx="96"  cy="388" r="14" fill="#3b4a6b"/>
+  <circle cx="306" cy="388" r="14" fill="#3b4a6b"/>
+  <circle cx="418" cy="388" r="14" fill="#3b4a6b"/>
+
+  <!-- the lens inspecting one leaf node -->
+  <circle cx="206" cy="382" r="16" fill="#f472b6"/>
+  <circle cx="206" cy="382" r="44" fill="#ffffff" fill-opacity="0.07"/>
+  <circle cx="206" cy="382" r="44" fill="none" stroke="#e2e8f0" stroke-width="11"/>
+  <path d="M238 414 L288 462" stroke="#e2e8f0" stroke-width="14" stroke-linecap="round"/>
+</svg>
