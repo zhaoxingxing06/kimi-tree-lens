@@ -1,62 +1,52 @@
+<div align="center">
+
+<img src="assets/banner.svg" alt="kimi-tree-lens — syntax-tree X-ray for Kimi Code" width="720"/>
+
 # kimi-tree-lens
 
-**[English](README.md) | 简体中文**
+**给 Kimi Code 装上看穿代码的"X 光"**
 
-<p align="center">
-  <img src="assets/banner.svg" alt="kimi-tree-lens — syntax-tree X-ray for Kimi Code" width="720"/>
-</p>
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Node](https://img.shields.io/badge/Node.js-%E2%89%A5%2020.6-339933)](https://nodejs.org)
+[![Languages](https://img.shields.io/badge/Java%20%C2%B7%20Python%20%C2%B7%20TS%20%C2%B7%20TSX%20%C2%B7%20Go-5-blue)](#支持语言)
+[![Built for](https://img.shields.io/badge/Built%20for-Kimi%20Code-black)](https://www.kimi.com)
 
-> 让 AI 一眼看穿代码的骨架，而不是一行行啃源码。
+[English](README.md) | **简体中文**
 
-把 tree-sitter 编译成 WASM 塞进 MCP，给 Kimi Code 装上语法树级的"X 光"：
-千行文件秒出大纲、Grep 表达不了的代码形态一句话命中、数千文件的符号定义与调用关系即问即答、
-常见危险代码模式审计开箱即用——全部在严格的路径围栏与资源上限之内运行。
+*让 AI 一眼看穿代码的骨架，而不是一行行啃源码。*
 
-一个 [Kimi Code](https://www.kimi.com) 托管插件，基于 [tree-sitter](https://tree-sitter.github.io/)（WASM 编译），
-通过 Model Context Protocol（MCP）工作，支持 Java、Python、TypeScript、TSX、Go。
+</div>
 
-## 背景
+---
 
-编程 agent 在真实代码库里工作时，成本和准确率主要消耗在两件事上：读文件和搜文件。为了看一个方法
-而把整个文件读进上下文是巨大的 token 浪费；Grep 能搜字符串，但表达不了结构——"找出所有
-`executeQuery` 调用"很容易，而"找出构造函数里对某字段的所有赋值"做不到。
+## 为什么做这个
 
-本插件就是为了给 Kimi Code 补上这块能力：用编译成 WASM 的 tree-sitter，让 agent 直接以语法树的
-粒度访问源码：
+编程 agent 在真实代码库里工作时，成本和准确率主要消耗在两件事上：**读文件**和**搜文件**。为了看一个方法而把整个文件读进上下文是巨大的 token 浪费；Grep 能搜字符串，但表达不了结构——"找出所有 `executeQuery` 调用"很容易，而"找出构造函数里对某字段的所有赋值"做不到。
+
+**kimi-tree-lens** 就是为了补上这块能力：把 [tree-sitter](https://tree-sitter.github.io/) 编译成 WASM，通过 [Model Context Protocol](https://modelcontextprotocol.io) 提供，让 agent 以语法树的粒度访问源码——全部在严格的路径围栏与资源上限之内运行：
 
 - **大纲代替通读** —— 先列出文件的符号定义与行号范围，再精确读取需要的那个方法。
 - **结构化搜索** —— S-expression 查询能表达字符串工具无法描述的 AST 形态，返回节点文本与行号。
 - **跨文件导航** —— 持久化、增量刷新的符号索引，在数千个文件规模上回答"这个符号在哪定义/被谁调用"。
-- **安全审计内置** —— 常见危险模式查询（eval/exec、`shell=True` 子进程、`innerHTML` 赋值、JDBC
-  `execute`、`System.exit`、`os/exec`……）开箱即用，往用户目录放 `.scm` 文件即可扩展。
+- **安全审计内置** —— 常见危险模式查询（eval/exec、`shell=True` 子进程、`innerHTML` 赋值、JDBC `execute`、`System.exit`、`os/exec`……）开箱即用，往用户目录放 `.scm` 文件即可扩展。
 
-由于这些工具会被 LLM agent 指向任意代码，插件本身也做了对应的加固：严格的路径围栏（读取时二次
-校验）、grammar WASM 的 SHA-256 锁定、以及硬性资源上限。本项目最初是我们自用 Kimi Code 的托管
-插件，现开源发布。
+一个 [Kimi Code](https://www.kimi.com) 托管插件。最初自用，现开源发布。
 
 ## 设计理念
 
-**结构优先。** Grep 活在字符串的世界里，而代码的意义活在语法树里。"找出所有 `executeQuery`
-调用"一句话就够，"构造函数里对某字段的所有赋值"只有树查询能表达。本插件把语法树当作数据库
-交给 agent 查询。
-
-**按需读取。** agent 最贵的资源是上下文。先大纲、后定义的两级读取路径，让"看一个方法"从通读
-整个文件变成一次精准命中。
-
-**默认安全。** 工具会被 agent 指向任意代码——路径围栏、读取时二次校验、哈希锁定、资源上限不是
-附加功能，而是存在的前提。
-
-**不做编辑器，永不 LSP。** 本插件不是类似 VSCode 的代码编辑器，未来也不会考虑集成 LSP 语言
-服务器。LSP 服务的是"编辑器里的人"：补全、诊断、会话，为人类在 IDE 里高效打字而生；本插件
-服务的是"代码库旁的 agent"，tree-sitter 的粒度恰好是这个问题的最优解，再叠上 LSP 只会增加
-重量，不会增加能力。
+| | |
+|---|---|
+| **结构优先** | Grep 活在字符串的世界里，而代码的意义活在语法树里。本插件把语法树当作数据库交给 agent 查询。 |
+| **按需读取** | agent 最贵的资源是上下文。先大纲、后定义的两级读取路径，让"看一个方法"从通读整个文件变成一次精准命中。 |
+| **默认安全** | 工具会被 agent 指向任意代码——路径围栏、读取时二次校验、哈希锁定、资源上限不是附加功能，而是存在的前提。 |
+| **不做编辑器，永不 LSP** | LSP 服务的是"编辑器里的人"（补全、诊断、会话）；本插件服务的是"代码库旁的 agent"。tree-sitter 的粒度恰好是这个问题的最优解，再叠上 LSP 只会增加重量，不会增加能力。 |
 
 > 感谢 pi——是它曾拥抱过我，才让我懂了 AI。
 > （在中文里，"AI"恰好就是"爱"的发音。）
 
 ## 支持语言
 
-Java、Python、TypeScript、TSX、Go。
+`Java` · `Python` · `TypeScript` · `TSX` · `Go`
 
 ## 工具列表
 
@@ -73,38 +63,30 @@ Java、Python、TypeScript、TSX、Go。
 | `get_node_types` | 列出语法的节点类型与字段，用于编写正确的查询模式 |
 | `analyze_complexity` | 按函数估算圈复杂度，按最差排序 |
 
-用户自定义查询：定义查询放 `~/.kimi-code/tree-sitter-queries/<lang>/*.scm`，审计 preset 放
-`~/.kimi-code/tree-sitter-queries/presets/<lang>/*.scm`（首行 `;;` 为描述），改动按 mtime 热加载。
+用户自定义查询：定义查询放 `~/.kimi-code/tree-sitter-queries/<lang>/*.scm`，审计 preset 放 `~/.kimi-code/tree-sitter-queries/presets/<lang>/*.scm`（首行 `;;` 为描述），改动按 mtime 热加载。
 
 ## 安装
 
-前提：[Node.js](https://nodejs.org) ≥ 20.6（自带 `npm`）。
+> **前提：** [Node.js](https://nodejs.org) ≥ 20.6（自带 `npm`）。
 
 在 Kimi Code 里执行：
 
-```
+```text
 /plugins install https://github.com/zhaoxingxing06/kimi-tree-lens
-```
-
-然后激活：
-
-```
 /reload
 ```
 
-装完了。首次启动时 MCP 服务会自动安装运行时依赖（仅一次，需要联网）。五种语言的 grammar WASM
-已预编译打包，加载时做 SHA-256 完整性校验——全程无需任何构建步骤。
+装完了。首次启动时 MCP 服务会自动安装运行时依赖（仅一次，需要联网）。五种语言的 grammar WASM 已预编译打包，加载时做 SHA-256 完整性校验——全程无需任何构建步骤。
 
 <details>
-<summary>手动 / 离线安装</summary>
+<summary><b>手动 / 离线安装</b></summary>
 
 ```bash
 git clone https://github.com/zhaoxingxing06/kimi-tree-lens.git
 cd kimi-tree-lens && npm install --omit=dev
 ```
 
-然后在 Kimi Code 里执行 `/plugins install /path/to/kimi-tree-lens`（也支持本地目录路径），
-最后 `/reload`。
+然后在 Kimi Code 里执行 `/plugins install /path/to/kimi-tree-lens`（也支持本地目录路径），最后 `/reload`。
 
 如需从源码重建 grammar（替代随库分发的 WASM）：
 
@@ -116,8 +98,7 @@ npm run build:grammars          # 克隆锁定的 tree-sitter tag、构建 WASM�
 
 ## 使用指引
 
-`/reload` 之后（或任何新会话里），`tree-lens` 的 MCP 工具对 agent 自动可用，零配置。自带的
-`code-search` skill 会在会话启动时加载，agent 已经知道何时、如何使用这些工具——你只需用自然语言说：
+`/reload` 之后（或任何新会话里），`tree-lens` 的 MCP 工具对 agent 自动可用，零配置。自带的 `code-search` skill 会在会话启动时加载，agent 已经知道何时、如何使用这些工具——你只需用自然语言说：
 
 | 你说 | agent 执行 |
 |------|-----------|
@@ -127,28 +108,32 @@ npm run build:grammars          # 克隆锁定的 tree-sitter tag、构建 WASM�
 | "找出所有给 `.innerHTML` 赋值的地方" | `ast_search` |
 | "这个文件里哪个函数复杂度最高？" | `analyze_complexity` |
 
-内置审计 preset 覆盖：`eval`/`exec`、`shell=True` 子进程、`pickle`/`marshal`、`innerHTML` 赋值、
-动态 `import()`、`dangerouslySetInnerHTML`、JDBC `execute`、`System.exit`、反射类加载、
-`os/exec`、`panic`、`unsafe.Pointer`。
+内置审计 preset 覆盖：`eval`/`exec`、`shell=True` 子进程、`pickle`/`marshal`、`innerHTML` 赋值、动态 `import()`、`dangerouslySetInnerHTML`、JDBC `execute`、`System.exit`、反射类加载、`os/exec`、`panic`、`unsafe.Pointer`。
 
-**扩展** —— 放入自定义查询文件即可（按改动自动热加载）：
+### 扩展
 
-- `~/.kimi-code/tree-sitter-queries/<lang>/*.scm` —— 定义查询
-- `~/.kimi-code/tree-sitter-queries/presets/<lang>/*.scm` —— 审计 preset（首行 `;;` 为描述）
+放入自定义查询文件即可（按改动自动热加载）：
 
-**管理** —— `/plugins list`、`/plugins info tree-lens`，或用
-`/plugins mcp disable tree-lens tree-lens` 停用其 MCP 服务。
+| 目录 | 用途 |
+|------|------|
+| `~/.kimi-code/tree-sitter-queries/<lang>/*.scm` | 定义查询 |
+| `~/.kimi-code/tree-sitter-queries/presets/<lang>/*.scm` | 审计 preset（首行 `;;` 为描述） |
+
+### 管理
+
+```text
+/plugins list
+/plugins info tree-lens
+/plugins mcp disable tree-lens tree-lens      # 停用其 MCP 服务
+```
 
 ## 与子代理（sub-agent）协作使用
 
-tree-lens 最大的收益在于上下文节省：把检索工作委派给只读子代理，主对话里拿回的是结论，
-而不是一堆原始 JSON dump。
+tree-lens 最大的收益在于上下文节省：把检索工作委派给只读子代理，主对话里拿回的是结论，而不是一堆原始 JSON dump。
 
-**规则一 —— `index_workspace` 只归主 agent。** 子代理启动时没有任何上下文，只能看到自己的
-工具列表，所以硬保证是工具白名单而不是提示词：定义一个工具里不含 `index_workspace` 的只读
-代理，例如 `.kimi-code/agents/tree-lens-reader.md`：
+**规则一 —— `index_workspace` 只归主 agent。** 子代理启动时没有任何上下文，只能看到自己的工具列表，所以硬保证是工具白名单而不是提示词：定义一个工具里不含 `index_workspace` 的只读代理，例如 `.kimi-code/agents/tree-lens-reader.md`：
 
-```markdown
+````markdown
 ---
 name: tree-lens-reader
 description: 只读代码检索子代理，通过 tree-lens 做结构化符号/引用/调用点查询，禁止重建索引
@@ -173,7 +158,7 @@ tools:
 - 交付物只允许：结论 + `file:line` 引用列表 + 版本核对结果；
   禁止粘贴原始 JSON dump 或代码大段。
 - find_references/callers/callees 是纯名字匹配，模糊命中必须用 Read 复核关键结果后再下结论。
-```
+````
 
 **规则二 —— 把子代理当成刚进门的同事来交代任务。** 它看不到你们的对话，每个任务提示都应写明：
 
@@ -184,28 +169,22 @@ tools:
 
 ## 常见问题
 
-- **工具没出现** —— 先执行 `/reload`；用 `/plugins info tree-lens` 查看诊断信息。
-- **首次启动慢或失败** —— 一次性依赖安装需要联网；离线环境请在
-  `~/.kimi-code/plugins/managed/tree-lens` 目录里手动执行 `npm install --omit=dev`。
-- **报 "grammar hash mismatch"** —— grammar WASM 被重建或篡改过；执行 `npm run build:grammars`
-  重新生成 WASM 与 `lib/grammar-hashes.json`。
-- **不支持的文件类型 / Node 报错** —— 本插件需要 Node.js ≥ 20.6，用 `node --version` 确认。
+| 现象 | 处理 |
+|------|------|
+| 工具没出现 | 先执行 `/reload`；用 `/plugins info tree-lens` 查看诊断信息 |
+| 首次启动慢或失败 | 一次性依赖安装需要联网；离线环境请在 `~/.kimi-code/plugins/managed/tree-lens` 目录里手动执行 `npm install --omit=dev` |
+| 报 `grammar hash mismatch` | grammar WASM 被重建或篡改过；执行 `npm run build:grammars` 重新生成 WASM 与 `lib/grammar-hashes.json` |
+| 不支持的文件类型 / Node 报错 | 本插件需要 Node.js ≥ 20.6，用 `node --version` 确认 |
 
 ## 安全模型
 
 本插件的设计前提是：调用它的 LLM agent 会把它指向任意代码。
 
-- **路径围栏** —— 所有 `file`/`root` 参数经 `realpath` 解析后必须落在宿主声明的 workspace roots、
-  `$TREE_SITTER_MCP_ROOTS` 或最近的项目标记（`.git`、`package.json`、`pom.xml`……）之内；
-  无任何标记的路径一律拒绝，除非显式设置 `TREE_SITTER_MCP_ALLOW_UNCONFINED=1`。
-- **读取时二次校验** —— 文件路径在 worker 内读取时会重新解析并复核围栏，验证与 I/O 之间的符号
-  链接置换无法逃出工作区。
-- **grammar 完整性** —— 每个 grammar WASM 在 `lib/grammar-hashes.json` 中以 SHA-256 锁定，
-  不匹配即拒绝加载。
-- **资源上限** —— 单文件 1 MB、NUL 字节二进制拒绝、每个工具软/硬双超时（超时的 worker 会被替换）、
-  索引规模受限（5000 文件、深度 12）、输出条数与长度截断。
-- **无网络、无子进程** —— 服务端只读取允许范围内的文件，索引缓存只写入
-  `~/.kimi-code/tree-sitter-plugin-cache/`。
+- **路径围栏** —— 所有 `file`/`root` 参数经 `realpath` 解析后必须落在宿主声明的 workspace roots、`$TREE_SITTER_MCP_ROOTS` 或最近的项目标记（`.git`、`package.json`、`pom.xml`……）之内；无任何标记的路径一律拒绝，除非显式设置 `TREE_SITTER_MCP_ALLOW_UNCONFINED=1`。
+- **读取时二次校验** —— 文件路径在 worker 内读取时会重新解析并复核围栏，验证与 I/O 之间的符号链接置换无法逃出工作区。
+- **grammar 完整性** —— 每个 grammar WASM 在 `lib/grammar-hashes.json` 中以 SHA-256 锁定，不匹配即拒绝加载。
+- **资源上限** —— 单文件 1 MB、NUL 字节二进制拒绝、每个工具软/硬双超时（超时的 worker 会被替换）、索引规模受限（5000 文件、深度 12）、输出条数与长度截断。
+- **无网络、无子进程** —— 服务端只读取允许范围内的文件，索引缓存只写入 `~/.kimi-code/tree-sitter-plugin-cache/`。
 
 ## 环境变量
 
@@ -233,5 +212,12 @@ npm run test:corpus    # 解析官方 tree-sitter 语料并与期望语法树逐
 
 ## 许可证
 
-MIT。随库分发的 grammar WASM 从官方 `tree-sitter-java/-python/-typescript/-go` 仓库（MIT 许可）
-在锁定 tag 上构建，具体版本见 `build-wasm.sh`。
+[MIT](LICENSE)。随库分发的 grammar WASM 从官方 `tree-sitter-java/-python/-typescript/-go` 仓库（MIT 许可）在锁定 tag 上构建，具体版本见 `build-wasm.sh`。
+
+---
+
+<div align="center">
+
+如果这个插件为你的 agent 省下了上下文，欢迎点个 ⭐
+
+</div>
