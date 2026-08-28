@@ -40,25 +40,42 @@ const workers = [];
 let seq = 0;
 let lastLang = null;
 const INDEX_OPS = new Set(["find_references", "go_to_definition", "index_status", "callers", "callees"]);
-let indexEntry = null;
+// one index per root; each index lives pinned to its own worker
+const indexes = new Map(); // normPath(rootAbs) -> { entry: workerEntry|null, root: abs }
+const indexHolders = new Set(); // workers currently authoritative for some root
 let lastIndexRoot = null;
 
-async function ensureIndex(op) {
+function acquireFreeIndexWorker() {
+  return workers.find((e) => !indexHolders.has(e)) ?? spawnWorker();
+}
+
+async function ensureIndex(op, requestedRoot) {
   if (!INDEX_OPS.has(op)) return { entry: null };
-  if (indexEntry && workers.includes(indexEntry)) return { entry: indexEntry };
-  if (lastIndexRoot) {
-    const { msg, entry } = await callWorker(
-      "index_workspace",
-      { root: lastIndexRoot, softDeadlineMs: Math.floor(DEADLINES.index_workspace * SOFT_RATIO) },
-      DEADLINES.index_workspace
-    );
-    if (msg.ok) {
-      indexEntry = entry;
-      return { entry };
+  let rec = null;
+  if (requestedRoot !== undefined) {
+    rec = indexes.get(normPath(path.resolve(requestedRoot)));
+    if (!rec) {
+      return { error: `no index for root ${requestedRoot}; available: ${[...indexes.keys()].join(", ") || "(none)"}; run index_workspace first` };
     }
-    return { error: `index worker was replaced and automatic rebuild failed (${msg.error}); run index_workspace again` };
+  } else {
+    if (indexes.size === 0) return { entry: null };
+    if (indexes.size === 1) rec = indexes.values().next().value;
+    else return { error: `multiple indexes exist (${[...indexes.keys()].join(", ")}); pass root to choose one` };
   }
-  return { entry: null };
+  if (rec.entry && workers.includes(rec.entry)) return { entry: rec.entry };
+  // index worker was lost; rebuild it on a worker that holds no other index
+  const { msg, entry } = await callWorker(
+    "index_workspace",
+    { root: rec.root, softDeadlineMs: Math.floor(DEADLINES.index_workspace * SOFT_RATIO) },
+    DEADLINES.index_workspace,
+    acquireFreeIndexWorker()
+  );
+  if (msg.ok) {
+    rec.entry = entry;
+    indexHolders.add(entry);
+    return { entry };
+  }
+  return { error: `index worker was replaced and automatic rebuild failed (${msg.error}); run index_workspace again` };
 }
 
 const ROOTS = { list: [], source: "none", attempted: false };
@@ -181,6 +198,10 @@ function refillPool() {
 }
 
 function dropWorker(entry, reason) {
+  for (const rec of indexes.values()) {
+    if (rec.entry === entry) rec.entry = null;
+  }
+  indexHolders.delete(entry);
   for (const p of entry.pending.values()) {
     if (p.timer) clearTimeout(p.timer);
     p.resolve({ ok: false, errorKind: "internal", error: reason });
@@ -276,20 +297,48 @@ async function runTool(op, args) {
         }
       }
     }
+    if (INDEX_OPS.has(op) && payload.root === undefined && typeof args.root === "string") {
+      // e.g. go_to_definition with both file (for proximity) and root (index selection)
+      let absRoot = path.resolve(args.root);
+      absRoot = await fs.realpath(absRoot).catch(() => absRoot);
+      const rootPolicy = await resolvePolicy(absRoot, true);
+      if (!rootPolicy.ok) {
+        return respond({ ok: false, error: rootPolicy.error, hint: HINTS.input });
+      }
+      payload.root = absRoot;
+    }
     const hard = DEADLINES[op] ?? 15000;
     const soft = Math.floor(hard * SOFT_RATIO);
     payload.softDeadlineMs = soft;
     let sticky = null;
-    if (INDEX_OPS.has(op)) {
-      const r = await ensureIndex(op);
+    if (op === "index_workspace") {
+      const key = normPath(payload.root);
+      const prev = indexes.get(key);
+      sticky = prev?.entry && workers.includes(prev.entry) ? prev.entry : acquireFreeIndexWorker();
+    } else if (op === "index_status" && payload.root === undefined && indexes.size > 0) {
+      // no root given: report the most recently built index and list the rest
+      const rec = indexes.get(normPath(lastIndexRoot)) ?? [...indexes.values()].at(-1);
+      if (!rec.entry || !workers.includes(rec.entry)) {
+        return respond({ ok: false, error: `index worker for ${rec.root} was lost; run index_workspace to rebuild`, hint: HINTS.internal });
+      }
+      sticky = rec.entry;
+    } else if (INDEX_OPS.has(op)) {
+      const r = await ensureIndex(op, payload.root);
       if (r.error) return respond({ ok: false, error: r.error, hint: HINTS.internal });
       sticky = r.entry;
     }
     const { msg, entry } = await callWorker(op, payload, hard, sticky);
     if (msg.ok) {
       if (op === "index_workspace") {
-        indexEntry = entry;
+        const key = normPath(payload.root);
+        const prev = indexes.get(key);
+        if (prev?.entry) indexHolders.delete(prev.entry);
+        indexHolders.add(entry);
+        indexes.set(key, { entry, root: payload.root });
         lastIndexRoot = payload.root;
+      }
+      if (op === "index_status" && indexes.size > 0) {
+        msg.data.available_roots = [...indexes.values()].map((rec) => rec.root);
       }
       if (msg.data && msg.data.lang) lastLang = msg.data.lang;
       return respond({
@@ -338,6 +387,10 @@ server.registerTool(
       file: z.string().describe("file path"),
       name: z.string().describe("exact definition name"),
       language: z.enum(SUPPORTED).optional().describe("override language inference"),
+      maxLines: z
+        .number()
+        .optional()
+        .describe("cap on lines returned per definition (default 200, hard max 1000); longer bodies are truncated"),
     },
   },
   (args) => runTool("read_definition", args)
@@ -355,6 +408,8 @@ server.registerTool(
         .string()
         .describe('tree-sitter query pattern, e.g. (method_invocation name: (identifier) @m)'),
       language: z.enum(SUPPORTED).optional().describe("override language inference"),
+      limit: z.number().optional().describe("max captures returned (default 50, hard max 200)"),
+      offset: z.number().optional().describe("skip the first N captures before applying limit"),
     },
   },
   (args) => runTool("ast_search", args)
@@ -365,7 +420,7 @@ server.registerTool(
   {
     title: "Index workspace symbols",
     description:
-      "Parse all supported source files under a directory and build an in-memory symbol index (definitions + identifier occurrences). Run once before find_references / go_to_definition.",
+      "Parse all supported source files under a directory and build an in-memory symbol index (definitions + identifier occurrences). Run once before find_references / go_to_definition. Indexes are kept per root: indexing a new root adds a second index instead of replacing the existing one.",
     inputSchema: {
       root: z.string().describe("workspace root directory"),
       maxFiles: z.number().optional().describe("cap on files to index (default 1500, hard max 5000)"),
@@ -382,6 +437,12 @@ server.registerTool(
       "Name-based (syntactic, not scope-resolved) occurrences of an identifier across the indexed workspace, marking definition sites. Requires index_workspace first.",
     inputSchema: {
       name: z.string().describe("identifier name to find"),
+      root: z
+        .string()
+        .optional()
+        .describe("index root to query; required when several indexes exist"),
+      limit: z.number().optional().describe("max results returned (default 50, hard max 200)"),
+      offset: z.number().optional().describe("skip the first N results before applying limit"),
     },
   },
   (args) => runTool("find_references", args)
@@ -396,6 +457,12 @@ server.registerTool(
     inputSchema: {
       name: z.string().describe("definition name"),
       file: z.string().optional().describe("reference file for proximity ranking"),
+      root: z
+        .string()
+        .optional()
+        .describe("index root to query; required when several indexes exist"),
+      limit: z.number().optional().describe("max definitions returned (default 50, hard max 200)"),
+      offset: z.number().optional().describe("skip the first N definitions before applying limit"),
     },
   },
   (args) => runTool("go_to_definition", args)
@@ -406,8 +473,10 @@ server.registerTool(
   {
     title: "Report index status",
     description:
-      "Report current workspace index state: root, version, totals, watcher active, pending dirty paths. Requires index_workspace first.",
-    inputSchema: {},
+      "Report current workspace index state: root, version, totals, watcher active, pending dirty paths. Requires index_workspace first. Without root, reports the most recently built index plus all available roots.",
+    inputSchema: {
+      root: z.string().optional().describe("index root to report; required when several indexes exist"),
+    },
   },
   (args) => runTool("index_status", args)
 );
@@ -476,6 +545,12 @@ server.registerTool(
       "Heuristic (name-based, within indexed workspace) call sites of a function: each hit gives file, line and enclosing caller function. Requires index_workspace first.",
     inputSchema: {
       name: z.string().describe("callee function name"),
+      root: z
+        .string()
+        .optional()
+        .describe("index root to query; required when several indexes exist"),
+      limit: z.number().optional().describe("max results returned (default 50, hard max 200)"),
+      offset: z.number().optional().describe("skip the first N results before applying limit"),
     },
   },
   (args) => runTool("callers", args)
@@ -489,6 +564,12 @@ server.registerTool(
       "Heuristic (name-based, within indexed workspace) callees of a function: call sites inside the function body grouped by callee name. Requires index_workspace first.",
     inputSchema: {
       name: z.string().describe("caller function name"),
+      root: z
+        .string()
+        .optional()
+        .describe("index root to query; required when several indexes exist"),
+      limit: z.number().optional().describe("max results returned (default 50, hard max 200)"),
+      offset: z.number().optional().describe("skip the first N results before applying limit"),
     },
   },
   (args) => runTool("callees", args)
