@@ -69,23 +69,75 @@ Java、Python、TypeScript、TSX、Go。
 
 ## 安装
 
-```bash
-git clone https://github.com/zhaoxingxing06/kimi-tree-lens.git \
-  ~/.kimi-code/plugins/managed/tree-lens
-cd ~/.kimi-code/plugins/managed/tree-sitter
-npm install --omit=dev
+前提：[Node.js](https://nodejs.org) ≥ 20.6（自带 `npm`）。
+
+在 Kimi Code 里执行：
+
+```
+/plugins install https://github.com/zhaoxingxing06/kimi-tree-lens
 ```
 
-然后在 Kimi Code 的插件配置中把插件目录指向这里（清单文件为 `kimi.plugin.json`）。五种语言的
-grammar WASM 已预编译打包在 `grammars/` 内，加载时会做完整性校验，无需任何构建步骤。
+然后激活：
 
-如需从源码重建 grammar：
+```
+/reload
+```
+
+装完了。首次启动时 MCP 服务会自动安装运行时依赖（仅一次，需要联网）。五种语言的 grammar WASM
+已预编译打包，加载时做 SHA-256 完整性校验——全程无需任何构建步骤。
+
+<details>
+<summary>手动 / 离线安装</summary>
+
+```bash
+git clone https://github.com/zhaoxingxing06/kimi-tree-lens.git
+cd kimi-tree-lens && npm install --omit=dev
+```
+
+然后在 Kimi Code 里执行 `/plugins install /path/to/kimi-tree-lens`（也支持本地目录路径），
+最后 `/reload`。
+
+如需从源码重建 grammar（替代随库分发的 WASM）：
 
 ```bash
 npm run build:grammars          # 克隆锁定的 tree-sitter tag、构建 WASM、刷新哈希
 ```
 
-需要 `git`、`python3` 和网络；tree-sitter CLI 通过 `npx` 拉取（版本已锁定）。
+</details>
+
+## 使用指引
+
+`/reload` 之后（或任何新会话里），`tree-lens` 的 MCP 工具对 agent 自动可用，零配置。自带的
+`code-search` skill 会在会话启动时加载，agent 已经知道何时、如何使用这些工具——你只需用自然语言说：
+
+| 你说 | agent 执行 |
+|------|-----------|
+| "给 `server.js` 列个大纲，再看下 `runTool` 的实现" | `list_definitions` → `read_definition` |
+| "先索引这个仓库，然后找出谁调用了 `savePersistedIndex`" | `index_workspace` → `callers` |
+| "对这个文件做安全扫描" | `list_presets` → `preset_search` |
+| "找出所有给 `.innerHTML` 赋值的地方" | `ast_search` |
+| "这个文件里哪个函数复杂度最高？" | `analyze_complexity` |
+
+内置审计 preset 覆盖：`eval`/`exec`、`shell=True` 子进程、`pickle`/`marshal`、`innerHTML` 赋值、
+动态 `import()`、`dangerouslySetInnerHTML`、JDBC `execute`、`System.exit`、反射类加载、
+`os/exec`、`panic`、`unsafe.Pointer`。
+
+**扩展** —— 放入自定义查询文件即可（按改动自动热加载）：
+
+- `~/.kimi-code/tree-sitter-queries/<lang>/*.scm` —— 定义查询
+- `~/.kimi-code/tree-sitter-queries/presets/<lang>/*.scm` —— 审计 preset（首行 `;;` 为描述）
+
+**管理** —— `/plugins list`、`/plugins info tree-lens`，或用
+`/plugins mcp disable tree-lens tree-lens` 停用其 MCP 服务。
+
+## 常见问题
+
+- **工具没出现** —— 先执行 `/reload`；用 `/plugins info tree-lens` 查看诊断信息。
+- **首次启动慢或失败** —— 一次性依赖安装需要联网；离线环境请在
+  `~/.kimi-code/plugins/managed/tree-lens` 目录里手动执行 `npm install --omit=dev`。
+- **报 "grammar hash mismatch"** —— grammar WASM 被重建或篡改过；执行 `npm run build:grammars`
+  重新生成 WASM 与 `lib/grammar-hashes.json`。
+- **不支持的文件类型 / Node 报错** —— 本插件需要 Node.js ≥ 20.6，用 `node --version` 确认。
 
 ## 安全模型
 

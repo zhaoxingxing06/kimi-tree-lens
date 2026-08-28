@@ -1,13 +1,24 @@
 {
   "name": "tree-lens",
   "version": "0.1.0",
-  "description": "Syntax-tree X-ray for Kimi Code: multi-language structural code navigation via tree-sitter (WASM)",
+  "description": "Syntax-tree X-ray for Kimi Code: structural code navigation via tree-sitter (WASM)",
+  "keywords": ["tree-sitter", "mcp", "ast", "code-navigation", "security-audit"],
+  "license": "MIT",
+  "author": "zhaoxingxing06",
+  "homepage": "https://github.com/zhaoxingxing06/kimi-tree-lens",
   "skills": "./skills/",
   "sessionStart": { "skill": "code-search" },
+  "interface": {
+    "displayName": "Kimi Tree Lens",
+    "shortDescription": "Syntax-tree X-ray: outline, AST search, symbol index, audit presets",
+    "longDescription": "Multi-language structural code navigation via tree-sitter (WASM). Outline files, read single definitions, run AST queries Grep cannot express, build a workspace symbol index, and run built-in security audit presets. Java, Python, TypeScript, TSX, Go.",
+    "developerName": "zhaoxingxing06",
+    "websiteURL": "https://github.com/zhaoxingxing06/kimi-tree-lens"
+  },
   "mcpServers": {
     "tree-lens": {
       "command": "node",
-      "args": ["./server.js"]
+      "args": ["./launcher.mjs"]
     }
   }
 }

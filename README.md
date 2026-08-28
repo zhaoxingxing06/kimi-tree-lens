@@ -80,24 +80,77 @@ User-defined queries are picked up from `~/.kimi-code/tree-sitter-queries/<lang>
 
 ## Install
 
-```bash
-git clone https://github.com/zhaoxingxing06/kimi-tree-lens.git \
-  ~/.kimi-code/plugins/managed/tree-lens
-cd ~/.kimi-code/plugins/managed/tree-sitter
-npm install --omit=dev
+Prerequisite: [Node.js](https://nodejs.org) ≥ 20.6 (`npm` included).
+
+In Kimi Code, run:
+
+```
+/plugins install https://github.com/zhaoxingxing06/kimi-tree-lens
 ```
 
-Then register the plugin in Kimi Code by pointing its plugin configuration at this directory
-(the manifest is `kimi.plugin.json`). Prebuilt grammar WASMs for all five languages are included
-in `grammars/` and verified at load time, so no build step is required.
+then activate it:
 
-To rebuild grammars from source instead:
+```
+/reload
+```
+
+That's it. On first launch the MCP server installs its runtime dependencies automatically
+(one-time, needs network). Grammar WASMs for all five languages ship prebuilt and are
+SHA-256-verified at load time — no build step is ever required.
+
+<details>
+<summary>Manual / offline installation</summary>
+
+```bash
+git clone https://github.com/zhaoxingxing06/kimi-tree-lens.git
+cd kimi-tree-lens && npm install --omit=dev
+```
+
+Then in Kimi Code: `/plugins install /path/to/kimi-tree-lens` (a local directory works too),
+followed by `/reload`.
+
+To rebuild grammars from source instead of using the bundled WASMs:
 
 ```bash
 npm run build:grammars          # clones pinned tree-sitter tags, builds WASM, refreshes hashes
 ```
 
-Requires `git`, `python3` and network access; the tree-sitter CLI is fetched via `npx` (pinned version).
+</details>
+
+## Usage
+
+After `/reload` — or in any new session — the `tree-lens` MCP tools are available to the agent
+with zero configuration. The bundled `code-search` skill is loaded at session start, so the agent
+already knows when and how to reach for them. Just ask in natural language:
+
+| You say | What the agent runs |
+|---------|---------------------|
+| "Outline `server.js`, then show me the `runTool` definition" | `list_definitions` → `read_definition` |
+| "Index this repo, then find who calls `savePersistedIndex`" | `index_workspace` → `callers` |
+| "Security-scan this file for dangerous patterns" | `list_presets` → `preset_search` |
+| "Find every assignment to `.innerHTML`" | `ast_search` |
+| "Which function in this file is the complexity hotspot?" | `analyze_complexity` |
+
+Built-in audit presets cover `eval`/`exec`, subprocess with `shell`, `pickle`/`marshal`,
+`innerHTML` assignment, dynamic `import()`, `dangerouslySetInnerHTML`, JDBC `execute`,
+`System.exit`, reflection class loading, `os/exec`, `panic` and `unsafe.Pointer`.
+
+**Extend it** — drop your own query files (hot-reloaded on change):
+
+- `~/.kimi-code/tree-sitter-queries/<lang>/*.scm` — definition queries
+- `~/.kimi-code/tree-sitter-queries/presets/<lang>/*.scm` — audit presets (first `;;` line is the description)
+
+**Manage it** — `/plugins list`, `/plugins info tree-lens`, or disable its MCP server with
+`/plugins mcp disable tree-lens tree-lens`.
+
+## Troubleshooting
+
+- **Tools don't show up** — run `/reload`; check `/plugins info tree-lens` for diagnostics.
+- **First launch is slow or fails** — the one-time dependency install needs network; if it fails
+  (offline), run `npm install --omit=dev` inside `~/.kimi-code/plugins/managed/tree-lens`.
+- **"grammar hash mismatch"** — a grammar WASM was rebuilt or tampered; run `npm run build:grammars`
+  to regenerate both the WASMs and `lib/grammar-hashes.json`.
+- **Unsupported file type / Node errors** — the plugin needs Node.js ≥ 20.6; check `node --version`.
 
 ## Security model
 
