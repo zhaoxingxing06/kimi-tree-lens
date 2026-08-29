@@ -83,9 +83,10 @@ await withClient(
     "analyze_complexity",
     "callers",
     "callees",
+    "resolution_stats",
   ];
   check(
-    "13 tools registered",
+    "14 tools registered",
     tools.tools.length === EXPECTED_TOOLS.length &&
       EXPECTED_TOOLS.every((n) => tools.tools.some((t) => t.name === n)),
     tools.tools.map((t) => t.name)

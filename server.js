@@ -1,5 +1,6 @@
 import path from "node:path";
 import fs from "node:fs/promises";
+import os from "node:os";
 import { Worker } from "node:worker_threads";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -20,6 +21,7 @@ const BASE_DEADLINES = {
   analyze_complexity: 15000,
   callers: 15000,
   callees: 15000,
+  resolution_stats: 60000,
 };
 const envDeadline = Number(process.env.TREE_SITTER_MCP_TIMEOUT_MS);
 const DEADLINES = Object.fromEntries(
@@ -36,11 +38,12 @@ const HINTS = {
   internal: "fall back to Read/Grep for this file",
 };
 
-const POOL_SIZE = Math.min(Math.max(Number(process.env.TREE_SITTER_MCP_POOL) || 2, 1), 4);
+const AUTO_POOL = Math.max(2, Math.min(os.availableParallelism?.() ?? os.cpus().length, 6));
+const POOL_SIZE = Math.min(Math.max(Number(process.env.TREE_SITTER_MCP_POOL) || AUTO_POOL, 1), 8);
 const workers = [];
 let seq = 0;
 let lastLang = null;
-const INDEX_OPS = new Set(["find_references", "go_to_definition", "index_status", "callers", "callees"]);
+const INDEX_OPS = new Set(["find_references", "go_to_definition", "index_status", "callers", "callees", "resolution_stats"]);
 // one index per root; each index lives pinned to its own worker
 const indexes = new Map(); // normPath(rootAbs) -> { entry: workerEntry|null, root: abs }
 const indexHolders = new Set(); // workers currently authoritative for some root
@@ -400,7 +403,7 @@ async function runTool(op, args) {
   }
 }
 
-const server = new McpServer({ name: "tree-lens", version: "0.1.5" });
+const server = new McpServer({ name: "tree-lens", version: "1.0.0" });
 
 try {
   server.server.setNotificationHandler(RootsListChangedNotificationSchema, () => {
@@ -465,10 +468,13 @@ server.registerTool(
   {
     title: "Index workspace symbols",
     description:
-      "Parse all supported source files under a directory and build an in-memory symbol index (definitions + identifier occurrences). Run once before find_references / go_to_definition. Indexes are kept per root: indexing a new root adds a second index instead of replacing the existing one.",
+      "Parse all supported source files under a directory into a persisted symbol index (definitions + identifier occurrences + call sites), backed by SQLite when available (JSON fallback). Run once before find_references / go_to_definition. Indexes are kept per root: indexing a new root adds a second index instead of replacing the existing one.",
     inputSchema: {
       root: z.string().describe("workspace root directory"),
-      maxFiles: z.number().optional().describe("cap on files to index (default 1500, hard max 5000)"),
+      maxFiles: z
+        .number()
+        .optional()
+        .describe("cap on files to index (default 20000 with SQLite store, 1500 with JSON fallback; hard max 100000 / 5000)"),
     },
   },
   (args) => runTool("index_workspace", args)
@@ -479,7 +485,7 @@ server.registerTool(
   {
     title: "Find identifier occurrences",
     description:
-      "Name-based (syntactic, not scope-resolved) occurrences of an identifier across the indexed workspace, marking definition sites. If the index for root does not exist yet it is built automatically (first call may be slow).",
+      "Occurrences of an identifier across the indexed workspace, marking definition sites. References are classified with confidence tiers: exact (import-resolved or local), likely (same-dir or unique name), name (fallback). If the index for root does not exist yet it is built automatically (first call may be slow).",
     inputSchema: {
       name: z.string().describe("identifier name to find"),
       root: z
@@ -591,7 +597,7 @@ server.registerTool(
   {
     title: "Find call sites of a function",
     description:
-      "Heuristic (name-based, within indexed workspace) call sites of a function: each hit gives file, line, language and enclosing caller function (plus receiver object for member calls). Accepts optional file/language filters. If the index for root does not exist yet it is built automatically.",
+      "Heuristic (name-based) call sites of a function in the indexed workspace: each hit gives file, line, language, enclosing caller function and receiver object, plus a confidence tier (exact when the receiver's declared type or an import resolves the callee, likely for same-dir/unique names, name as fallback). Same-named methods of different classes are mixed in one result; filter by resolved_to for a precise call graph. Accepts optional file/language filters. If the index for root does not exist yet it is built automatically.",
     inputSchema: {
       name: z.string().describe("callee function name"),
       file: z.string().optional().describe("restrict to call sites in this file"),
@@ -612,7 +618,7 @@ server.registerTool(
   {
     title: "Find functions called by a function",
     description:
-      "Heuristic (name-based, within indexed workspace) callees of a function: call sites inside the function body grouped by callee name, with file, language and receiver object per hit. Accepts optional file/language filters. If the index for root does not exist yet it is built automatically.",
+      "Heuristic (name-based) call sites inside a function's body, grouped per callee name, with file, language, receiver object and a confidence tier (exact/likely/name) for the callee resolution. Same-named callees of different classes are grouped under one name; use the resolved_to fields to disambiguate. Accepts optional file/language filters. If the index for root does not exist yet it is built automatically.",
     inputSchema: {
       name: z.string().describe("caller function name"),
       file: z.string().optional().describe("restrict to call sites in this file"),
@@ -626,6 +632,19 @@ server.registerTool(
     },
   },
   (args) => runTool("callees", args)
+);
+
+server.registerTool(
+  "resolution_stats",
+  {
+    title: "Measure cross-file resolution coverage",
+    description:
+      "Aggregate resolution statistics over the indexed workspace: share of call sites resolved at each confidence tier (exact/likely/name), how import names resolve, and how many names are defined in several files. Use it to measure, not assert, how well cross-file navigation works on a given codebase.",
+    inputSchema: {
+      root: z.string().optional().describe("index root to measure; required when several indexes exist"),
+    },
+  },
+  (args) => runTool("resolution_stats", args)
 );
 
 process.on("uncaughtException", (e) => {

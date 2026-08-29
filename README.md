@@ -27,7 +27,7 @@ When a coding agent works in a real codebase, two things dominate its cost and a
 
 - **Outline instead of read** — list the definitions of a file with line ranges, then fetch only the one method that matters.
 - **Structural search** — S-expression queries capture AST shapes that string tools cannot express, with node text and line numbers returned.
-- **Workspace-scale navigation** — a persisted, incrementally-refreshed symbol index answers "where is this defined / called" across thousands of files.
+- **Workspace-scale navigation** — a persisted, incrementally-refreshed symbol index answers "where is this defined / called" across tens of thousands of files.
 - **Security audits as presets** — dangerous-pattern queries (eval/exec, subprocess with `shell=`, `innerHTML` assignment, JDBC `execute`, `System.exit`, `os/exec`…) shipped built-in, extensible by dropping `.scm` files in a user directory.
 
 A managed plugin for [Kimi Code](https://www.kimi.com). Originally developed as an internal plugin, now open-sourced.
@@ -57,13 +57,28 @@ A managed plugin for [Kimi Code](https://www.kimi.com). Originally developed as 
 | `ast_search` | Run a tree-sitter query (S-expression pattern) against a file |
 | `index_workspace` | Parse all supported sources under a directory into a symbol index |
 | `find_references` / `go_to_definition` | Name-based navigation over the index; `find_references` accepts an optional `file` arg to scope results to one file (cheap disambiguation of same-named definitions) |
-| `callers` / `callees` | Heuristic call-graph over the index; hits carry language + receiver, optional file/language filters |
+| `callers` / `callees` | Heuristic call-graph over the index; hits carry language + receiver + resolution confidence, optional file/language filters |
+| `resolution_stats` | Measure resolution coverage of the whole index: exact/likely/name-only tiers, per-`via` breakdown, import resolution rate, same-name collision groups |
 | `index_status` | Index state, totals, watcher status |
 | `list_presets` / `preset_search` | Built-in audit queries (eval/exec, subprocess, innerHTML, JDBC...) |
 | `get_node_types` | Grammar node types and fields, for writing correct query patterns |
 | `analyze_complexity` | Approximate cyclomatic complexity per function, worst first |
 
 User-defined queries are picked up from `~/.kimi-code/tree-sitter-queries/<lang>/*.scm` (definition queries) and `~/.kimi-code/tree-sitter-queries/presets/<lang>/*.scm` (audit presets; first `;;` line is the description). They hot-reload on mtime change.
+
+### Resolution confidence
+
+Every call-site hit from `callers` / `callees` / `find_references` carries a confidence tier and a `via` reason, so the agent knows how much to trust it:
+
+- **`exact`** — the target is pinned to one file (and symbol). `via: type` — the receiver's declared type, including members inherited through the `extends`/`implements` chain, `this`/`super` and implicit-this calls, class-name receivers (`Utils.fmt()` static calls resolved through the unique class), java `new Foo()` constructor calls, interface-typed receivers dispatched to the unique implementing class, Lombok-style accessors (`user.getName()` pins to the `User.name` field it reads), chained receivers resolved through in-repo method return types (`user.getProfile().displayName()`, every hop exact), and receivers typed by field / parameter / local / for-each / catch declarations; `via: import` / `import-static` / `import-wildcard` — the symbol was imported from exactly one file; `via: local` — defined in the same file.
+- **`likely`** — a best guess without a hard pin: `via: type` when the receiver's type is unique in the index but the member itself lives outside it (e.g. MyBatis-Plus `mapper.selectList()` anchors to the mapper interface defined in the repo); `via: same-dir`; `via: unique` (exactly one definition of that name exists in the whole index).
+- **`name`** — unresolved; the hit is name-based only (DI-injected beans, reflection, chained calls whose intermediate return types leave the index such as `stream().map()` — static analysis cannot see through those).
+
+`resolution_stats` reports the coverage numbers for the whole index, so you can quantify precision before trusting a call graph.
+
+### Freshness
+
+The index never serves stale answers silently. Reads flush pending watcher changes first (bounded by `TREE_SITTER_MCP_FRESHEN_BUDGET_MS`, default 2000ms); edits made outside a session are absorbed by the same catch-up path on the next auto-index. When a query answers before the backlog is drained, the response carries an explicit staleness banner listing the pending files instead of pretending it is current. The watcher schedules re-parse ahead of traversal, so large edits land within one debounce window (`TREE_SITTER_MCP_WATCH_DEBOUNCE_MS`, default 300ms, forced flush at 5x).
 
 ## Install
 
@@ -131,15 +146,15 @@ Drop your own query files (hot-reloaded on change):
 
 The biggest payoff of tree-lens is context savings: delegate the lookups to a read-only sub-agent and get conclusions back instead of raw JSON dumps in the main conversation.
 
-**Rule 1 — only the main agent runs `index_workspace`.** Sub-agents start with zero context and only see their tool list, so the hard guarantee is the tool whitelist, not prompts: define a read-only agent whose tools omit `index_workspace`, e.g. `.kimi-code/agents/tree-lens-reader.md`:
+**Rule 1 — only the main agent runs `index_workspace`.** Sub-agents start with zero context and only see their tool list, so the hard guarantee is the tool whitelist, not prompts: the plugin bundles a ready-made read-only agent at `agents/tree-lens-reader.md` — copy it into your project's `.kimi-code/agents/` (or define your own whose tools omit `index_workspace`). Its definition:
 
 ````markdown
 ---
 name: tree-lens-reader
-description: Read-only code-retrieval sub-agent; structured symbol/reference/call-site
-  queries via tree-lens; must not rebuild indexes
-whenToUse: delegate when the main agent has already indexed the workspace and needs
-  precise symbol location or call-site retrieval
+description: Read-only code retrieval subagent; structured symbol/reference/call-site
+  queries via tree-lens; rebuilding the index is forbidden
+whenToUse: Delegate when the main agent has already built the index and precise symbol
+  location or call-site retrieval is needed
 tools:
   - Read
   - Grep
@@ -149,19 +164,47 @@ tools:
   - mcp__plugin-tree-lens_tree-lens__index_status
   - mcp__plugin-tree-lens_tree-lens__callers
   - mcp__plugin-tree-lens_tree-lens__callees
+  - mcp__plugin-tree-lens_tree-lens__list_definitions
+  - mcp__plugin-tree-lens_tree-lens__read_definition
+  - mcp__plugin-tree-lens_tree-lens__ast_search
+  - mcp__plugin-tree-lens_tree-lens__analyze_complexity
+  - mcp__plugin-tree-lens_tree-lens__list_presets
+  - mcp__plugin-tree-lens_tree-lens__preset_search
+  - mcp__plugin-tree-lens_tree-lens__get_node_types
 ---
 
-You are a read-only retrieval agent. Indexing is the main agent's job; you have no
-`index_workspace` tool and must not try to rebuild indexes.
+You are a read-only retrieval agent. Indexing is owned by the main agent; you have no
+index_workspace tool and must not attempt to rebuild the index.
 
-Rules:
-- With multiple indexes, find_references / callers / callees MUST pass an explicit root.
-- Before concluding, call index_status once and report the root + index_version you used.
-- Deliverables: conclusions + `file:line` references + the version check. No raw JSON
-  dumps, no large code blocks.
-- find_references/callers/callees are name-based; verify key hits with Read before
-  drawing conclusions. Pass `file` to find_references to scope hits to one file
-  when same-named definitions exist.
+Usage rules:
+- When multiple indexes exist, calls to find_references / callers / callees must pass
+  the root argument explicitly.
+- Before delivering, call index_status once to confirm index state (root /
+  index_version), and report the root and index_version of the index used in your result.
+- Prefer hits with `confidence: exact` and a `resolved_to`; find_references / callers /
+  callees are name-based recall, so same-named definitions of different classes mix in
+  one result. Filter by `resolved_to` and spot-check key hits with Read before drawing
+  conclusions.
+- If an ast_search pattern errors, correct and retry at most once; if it still fails,
+  fall back to Grep/Read instead of repeatedly rewriting the pattern.
+- Call list_presets before using preset_search; never guess preset names.
+
+Result standard — your final message must satisfy every item below to count as complete:
+- Conclusions first: direct answers to the question asked, one statement per conclusion;
+  no narration of the steps you took.
+- Every conclusion carries evidence: `file:line` (plus symbol name where relevant), line
+  numbers copied from tool output — never guessed, never approximated.
+- Call-site and reference conclusions state the confidence tier they rest on (exact /
+  likely / name). `likely` or `name`-tier hits may support a lead only, never a final
+  conclusion — and you must say so explicitly.
+- The result reports the `root` and `index_version` used, and states whether
+  `index_version` changed while you worked.
+- If results were truncated (`total` > `returned`), state it, with the `limit`/`offset`.
+- Zero hits is reported plainly as "no hits in index vN for <name>" — never pad with
+  Grep/Read output presented as if it came from the index.
+- No raw JSON dumps; quoted source is at most 3 lines per hit.
+
+Your final message is the complete deliverable to the main agent.
 ````
 
 **Rule 2 — brief the sub-agent like a colleague.** It has not seen your conversation. Every task prompt should spell out:
@@ -187,7 +230,7 @@ This plugin is designed to be pointed at arbitrary code by an LLM agent:
 - **Path confinement** — every `file`/`root` argument must resolve (after `realpath`) inside the workspace roots advertised by the host, `$TREE_SITTER_MCP_ROOTS`, or the nearest project marker (`.git`, `package.json`, `pom.xml`, ...). Paths with no marker are rejected unless `TREE_SITTER_MCP_ALLOW_UNCONFINED=1` is set explicitly.
 - **Read-time re-validation** — file paths are re-resolved and fence-checked inside the worker at read time, so symlink swaps between validation and I/O cannot escape the workspace.
 - **Grammar integrity** — every grammar WASM is SHA-256 pinned in `lib/grammar-hashes.json`; a mismatch refuses to load.
-- **Resource caps** — 1 MB per file, NUL-byte binary rejection, soft/hard deadlines per tool (timed-out workers are replaced), bounded index (5000 files, depth 12) and bounded output sizes.
+- **Resource caps** — 1 MB per file, NUL-byte binary rejection, soft/hard deadlines per tool (timed-out workers are replaced), bounded index (SQLite default 20000 files / hard 100000; JSON fallback 1500 / 5000; depth 40) and bounded output sizes.
 - **No network, no subprocess** — the server only reads files under allowed roots and writes its index cache under `~/.kimi-code/tree-sitter-plugin-cache/`.
 
 ## Environment variables
@@ -197,18 +240,46 @@ This plugin is designed to be pointed at arbitrary code by an LLM agent:
 | `TREE_SITTER_MCP_ROOTS` | host roots | Path-separated list of allowed workspace roots |
 | `TREE_SITTER_MCP_ALLOW_UNCONFINED` | unset | `1` allows paths without any project marker |
 | `TREE_SITTER_MCP_TIMEOUT_MS` | per-tool defaults | Override hard deadline for all tools (ms) |
-| `TREE_SITTER_MCP_POOL` | `2` | Worker pool size (1–4) |
+| `TREE_SITTER_MCP_POOL` | auto (1–8) | Worker pool size |
 | `TREE_SITTER_MCP_CACHE_DIR` | `~/.kimi-code/tree-sitter-plugin-cache` | Persisted index location |
+| `TREE_SITTER_MCP_MAX_FILES` | `20000` | SQLite-store default file cap (hard cap 100000) |
+| `TREE_SITTER_MCP_FRESHEN_BUDGET_MS` | `2000` | Time budget for flushing pending edits before a read |
+| `TREE_SITTER_MCP_STORE` | sqlite | Set to `json` to force the JSON store fallback |
 | `TREE_SITTER_MCP_USER_QUERIES` | `~/.kimi-code/tree-sitter-queries` | User `.scm` queries directory |
-| `TREE_SITTER_MCP_WATCH_DEBOUNCE_MS` | `800` | File-watcher debounce; a forced flush runs after 5x this wait even under sustained writes |
+| `TREE_SITTER_MCP_WATCH_DEBOUNCE_MS` | `300` | File-watcher debounce; a forced flush runs after 5x this wait even under sustained writes |
 | `TREE_SITTER_MCP_CACHE_SPIN_MS` | `2000` | Tree-cache freshness poll interval |
 
 ## Tests
 
 ```bash
-npm test               # 41-case smoke suite (confinement, timeouts, cache, watcher...)
+npm test               # 113-case suite: smoke (confinement, timeouts, cache, watcher...), call graph, resolution, multi-index, stores, freshness
 npm run test:corpus    # parses official tree-sitter corpora and diffs against expected trees
 ```
+
+## Measured resolution coverage
+
+Real-world numbers from `node scripts/bench-precision.mjs <repo>` on a production Spring/MyBatis repo (634 Java files, `ztls-saas-disposal`):
+
+| metric | value |
+|---|---|
+| cold index (634 files, 7374 symbols) | ~1.3s |
+| call sites | 28762 (23561 with receiver) |
+| exact | 11187 (38.9%) — receiver type 8861, local 1302, import 1024 |
+| likely | 3987 (13.9%) — mostly external-base anchoring |
+| name-only | 13588 (47.2%) |
+| import names resolved | 1912/5108 (37.4%) |
+
+The remaining 47% name-only tier is dominated by DI-injected beans, reflection, and calls whose member or return types live outside the repo (MyBatis-Plus `BaseMapper`, Lombok-generated members) — a fundamental ceiling for declaration-based static analysis, not an implementation gap. Resolution evolved in three steps, each pinned by `tests/resolve.mjs`: inheritance-aware receivers plus java `new Foo()` constructor capture lifted exact from 2317 (8.8%) → 4411 (15.3%); accessor synthesis (Lombok-style getters/setters pin to the field they access) plus external-base anchoring lifted it to 10725 (37.3%); parameter / for-each / catch declared types plus chained-receiver resolution through in-repo method return types brought it to 11187 (38.9%).
+
+Scale, measured by `node scripts/bench-scale.mjs --files 20000` (generated 20k-file Python corpus, SQLite store):
+
+| metric | value |
+|---|---|
+| files indexed | 20000 (60000 symbols, 100000 refs) |
+| cold index | 3.2s (~6290 files/s) |
+| single-file incremental re-index | 216ms (parsed=1, reused=19999) |
+| query latency (200 randomized lookups) | p50 0ms / p95 1ms / max 136ms |
+| process RSS after index | ~295 MB |
 
 ## Roadmap
 
