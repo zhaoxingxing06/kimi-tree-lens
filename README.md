@@ -130,7 +130,7 @@ npm run build:grammars          # clones pinned tree-sitter tags, builds WASM, r
 
 ## Usage
 
-After `/reload` — or in any new session — the `tree-lens` MCP tools (`mcp__tree-lens__*`) are available to the agent. The bundled `code-search` skill is loaded at session start, so the agent already knows when and how to reach for them. Just ask in natural language:
+After `/reload` — or in any new session — the `tree-lens` MCP tools (`mcp__tree-lens__*`) are available to the agent. The plugin contributes an always-on system prompt (`SYSTEM.md`, via the manifest's `systemPromptPath`) carrying the core usage rules, so the main agent knows when and how to reach for them; the full reference ships as the `code-search` skill, loadable on demand via `/skill:code-search` (sub-agents can invoke it themselves). Just ask in natural language:
 
 | You say | What the agent runs |
 |---------|---------------------|
@@ -164,7 +164,7 @@ The MCP server is not plugin-managed, so `/plugins mcp enable|disable` does not 
 
 The biggest payoff of tree-lens is context savings: delegate the lookups to a read-only sub-agent and get conclusions back instead of raw JSON dumps in the main conversation.
 
-**Rule 1 — only the main agent runs `index_workspace`.** Sub-agents start with zero context and only see their tool list, so the hard guarantee is the tool whitelist, not prompts: the plugin bundles a ready-made read-only agent at `agents/tree-lens-reader.md` — copy it into your project's `.kimi-code/agents/` (or define your own whose tools omit `index_workspace`). Its definition:
+**Rule 1 — only the main agent runs `index_workspace`.** Sub-agents start with zero context and only see their tool list, so the hard guarantee is the tool whitelist, not prompts: the plugin bundles ready-made read-only agents under `agents/` — `tree-lens-reader.md` for generic retrieval (embedded below) and `tree-lens-tracer.md` for call-chain tracing (see after Rule 2). Plugin agents are discovered automatically while the plugin is enabled; you can also copy one into your project's `.kimi-code/agents/` (or define your own whose tools omit `index_workspace`). The reader's definition:
 
 ````markdown
 ---
@@ -231,6 +231,8 @@ Your final message is the complete deliverable to the main agent.
 - the exact tool names to call and which `root` to pass
 - "re-check `index_status` and compare `index_version` before concluding"
 - the deliverable format: conclusions + `file:line` + the `index_version` used
+
+**Call-chain tracing — `agents/tree-lens-tracer.md`.** For "who calls X / what does X call / path from A to B" questions, the plugin also bundles a read-only tracer agent: its whitelist matches the reader's (no `index_workspace`, no write tools), but it expands the chain level by level with `callers` / `callees` / `ast_search`, verifies each edge against the source, and returns the chain as one box-drawn tree of nodes. Every node carries `file:line`, the confidence tier (`exact` / `likely` / `name`, plus `resolved_to`) and at most 3 quoted lines of the actual call expression as evidence; edges it could not verify are marked `[lead]`, cycles are cut with `↺ cycle` markers, and the footer reports the `root` / `index_version` used plus any truncation.
 
 ## Troubleshooting
 

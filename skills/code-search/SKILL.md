@@ -3,6 +3,8 @@ name: code-search
 description: Structural code navigation for many languages via the tree-sitter MCP tools
 ---
 
+Detailed reference companion to the plugin's always-on system prompt (which carries the core rules): this file adds pagination, index semantics, path confinement, and extension points. Load it on demand — sub-agents can invoke it themselves.
+
 For source code files (java, python, typescript, tsx, go):
 
 - Outline a file or find where a definition lives -> `list_definitions(file)`

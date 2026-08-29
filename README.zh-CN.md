@@ -129,7 +129,7 @@ npm run build:grammars          # 克隆锁定的 tree-sitter tag、构建 WASM�
 
 ## 使用指引
 
-`/reload` 之后（或任何新会话里），`tree-lens` 的 MCP 工具（`mcp__tree-lens__*`）对 agent 可用。自带的 `code-search` skill 会在会话启动时加载，agent 已经知道何时、如何使用这些工具——你只需用自然语言说：
+`/reload` 之后（或任何新会话里），`tree-lens` 的 MCP 工具（`mcp__tree-lens__*`）对 agent 可用。插件通过清单的 `systemPromptPath` 注入常驻系统提示词（`SYSTEM.md`，核心使用规则），主 agent 始终知道何时、如何使用这些工具；完整参考以 `code-search` skill 形式随插件分发，按需调用（`/skill:code-search`，子代理也可自行加载）。你只需用自然语言说：
 
 | 你说 | agent 执行 |
 |------|-----------|
@@ -163,7 +163,7 @@ MCP server 不由插件管理，`/plugins mcp enable|disable` 对它无效——
 
 tree-lens 最大的收益在于上下文节省：把检索工作委派给只读子代理，主对话里拿回的是结论，而不是一堆原始 JSON dump。
 
-**规则一 —— `index_workspace` 只归主 agent。** 子代理启动时没有任何上下文，只能看到自己的工具列表，所以硬保证是工具白名单而不是提示词：插件自带一个现成的只读代理 `agents/tree-lens-reader.md`——把它复制到你项目的 `.kimi-code/agents/`（或自己定义一个工具里不含 `index_workspace` 的只读代理）。其定义：
+**规则一 —— `index_workspace` 只归主 agent。** 子代理启动时没有任何上下文，只能看到自己的工具列表，所以硬保证是工具白名单而不是提示词：插件在 `agents/` 下自带两个只读代理——`tree-lens-reader.md`（通用检索，定义见下）和 `tree-lens-tracer.md`（调用链路追踪，见规则二之后的说明）。插件启用时这些代理会被自动发现；也可以复制到你项目的 `.kimi-code/agents/`（或自己定义一个工具里不含 `index_workspace` 的只读代理）。reader 的定义：
 
 ````markdown
 ---
@@ -219,6 +219,8 @@ tools:
 - 要调用的确切工具名，以及该传哪个 `root`
 - "下结论前先调 `index_status` 核对 `index_version`"
 - 交付物格式：结论 + `file:line` 引用 + 所用的 `index_version`
+
+**链路追踪 —— `agents/tree-lens-tracer.md`。** 对于"谁调用了 X / X 调用了什么 / 从 A 到 B 的调用路径"这类问题，插件还内置一个只读链路追踪代理：工具白名单与 reader 相同（无 `index_workspace`、无任何写工具），但它会用 `callers` / `callees` / `ast_search` 逐层展开调用链、逐边到源码核实佐证，最终把链路以一张带框线的树返回。每个节点带 `file:line`、置信档（`exact` / `likely` / `name` 及 `resolved_to`）、以及不超过 3 行的调用点源码引用作为佐证；未能核实的边标 `[lead]`，环用 `↺ cycle` 标记截断，结尾报告所用 `root` / `index_version` 与截断情况。
 
 ## 常见问题
 
