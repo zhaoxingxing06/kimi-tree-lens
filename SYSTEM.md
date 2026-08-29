@@ -25,6 +25,6 @@ Tree Lens exposes tree-sitter (WASM) MCP tools (`mcp__tree-lens__*`) for Java, P
 
 ## Sub-agents (they do NOT see this text — relay it yourself)
 
-- `index_workspace` is exclusive to the main agent; delegate read-only lookups to read-only sub-agents (e.g. `tree-lens-reader`, `tree-lens-tracer`) whose tool whitelist omits it
+- `index_workspace` is exclusive to the main agent; delegate read-only lookups to read-only sub-agents (e.g. `tree-lens-tracer`) whose tool whitelist omits it
 - In the task prompt spell out: absolute paths, exact tool names, which `root` to query, and "re-check `index_status` and compare `index_version` before concluding" — sub-agents start with zero context
 - Require compact deliverables: conclusions + `file:line` references + the `index_version` used — never raw JSON dumps

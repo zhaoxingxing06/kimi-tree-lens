@@ -29,6 +29,6 @@ Multi-index (one index per root):
 
 Main-agent discipline (sub-agents do NOT see this skill text — relay it yourself):
 
-- Keep `index_workspace` exclusive to the main agent. Delegate read-only lookups to a read-only sub-agent whose tool whitelist omits `index_workspace` (e.g. `.kimi-code/agents/tree-lens-reader.md`).
+- Keep `index_workspace` exclusive to the main agent. Delegate read-only lookups to a read-only sub-agent whose tool whitelist omits `index_workspace` (e.g. the bundled `tree-lens-tracer` agent).
 - When delegating, spell out in the task prompt: absolute paths, exact tool names, which `root` to query, and "re-check `index_status` and compare `index_version` before concluding". Sub-agents start with zero context and only see tool descriptions.
 - Require compact deliverables: conclusions + `file:line` references + the `index_version` used — never raw JSON dumps. Prompt-level rules are advisory; the hard guarantees are the tool whitelist and server-side clamping.
