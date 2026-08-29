@@ -400,7 +400,7 @@ async function runTool(op, args) {
   }
 }
 
-const server = new McpServer({ name: "tree-lens", version: "0.1.2" });
+const server = new McpServer({ name: "tree-lens", version: "0.1.5" });
 
 try {
   server.server.setNotificationHandler(RootsListChangedNotificationSchema, () => {
