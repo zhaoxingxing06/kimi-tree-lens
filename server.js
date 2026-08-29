@@ -328,8 +328,10 @@ async function runTool(op, args) {
         }
       }
     }
-    if (INDEX_OPS.has(op) && payload.root === undefined && typeof args.root === "string") {
+    if (INDEX_OPS.has(op) && typeof args.root === "string") {
       // e.g. go_to_definition with both file (for proximity) and root (index selection)
+      // normalize unconditionally: payload.root may be a raw copy of args.root when
+      // args.file is present, and index keys are registered under the realpath'd root
       let absRoot = path.resolve(args.root);
       absRoot = await fs.realpath(absRoot).catch(() => absRoot);
       const rootPolicy = await resolvePolicy(absRoot, true);
@@ -484,6 +486,10 @@ server.registerTool(
         .string()
         .optional()
         .describe("index root to query; required when several indexes exist"),
+      file: z
+        .string()
+        .optional()
+        .describe("restrict results to this file (scope filter for same-named definitions)"),
       limit: z.number().optional().describe("max results returned (default 50, hard max 200)"),
       offset: z.number().optional().describe("skip the first N results before applying limit"),
     },
