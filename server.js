@@ -22,6 +22,7 @@ const BASE_DEADLINES = {
   callers: 15000,
   callees: 15000,
   resolution_stats: 60000,
+  delete_index: 15000,
 };
 const envDeadline = Number(process.env.TREE_SITTER_MCP_TIMEOUT_MS);
 const DEADLINES = Object.fromEntries(
@@ -386,6 +387,35 @@ async function runTool(op, args) {
         sticky = r.entry;
       }
     }
+    if (op === "delete_index") {
+      let target = payload.root;
+      if (target === undefined) {
+        if (indexes.size === 0) {
+          return respond({ ok: false, error: "no index exists in this session; nothing to delete", hint: HINTS.no_index });
+        }
+        if (indexes.size > 1) {
+          return respond({ ok: false, error: `multiple indexes exist (${[...indexes.keys()].join(", ")}); pass root to choose one`, hint: HINTS.input });
+        }
+        target = [...indexes.values()][0].root;
+      }
+      const key = normPath(target);
+      const rec = indexes.get(key);
+      if (!rec) {
+        return respond({ ok: false, error: `no index for root ${target} in this session; call index_status to list available_roots`, hint: HINTS.input });
+      }
+      const sticky = rec.entry && workers.includes(rec.entry) ? rec.entry : null;
+      const { msg } = await callWorker("delete_index", { root: rec.root, softDeadlineMs: soft }, DEADLINES.delete_index, sticky);
+      // registration is dropped regardless of the worker reset outcome
+      if (rec.entry) indexHolders.delete(rec.entry);
+      indexes.delete(key);
+      if (lastIndexRoot && normPath(lastIndexRoot) === key) {
+        lastIndexRoot = [...indexes.values()].at(-1)?.root ?? null;
+      }
+      if (!msg.ok) {
+        return respond({ ok: true, deleted: rec.root, worker_reset: false, warning: msg.error });
+      }
+      return respond({ ok: true, deleted: rec.root, ...(msg.data ?? {}) });
+    }
     const { msg, entry } = await callWorker(op, payload, hard, sticky);
     if (msg.ok) {
       if (op === "index_workspace") registerIndex(payload.root, entry);
@@ -483,6 +513,22 @@ server.registerTool(
     },
   },
   (args) => runTool("index_workspace", args)
+);
+
+server.registerTool(
+  "delete_index",
+  {
+    title: "Delete a workspace index",
+    description:
+      "Drop a workspace symbol index built by index_workspace: removes it from the current session and deletes its persisted cache files (SQLite db / JSON) so the next index_workspace rebuilds from scratch. Omit root when exactly one index exists; with several indexes you must pass root. Non-destructive to source files — only cache is removed.",
+    inputSchema: {
+      root: z
+        .string()
+        .optional()
+        .describe("index root to delete; required when several indexes exist"),
+    },
+  },
+  (args) => runTool("delete_index", args)
 );
 
 server.registerTool(

@@ -60,6 +60,7 @@ A managed plugin for [Kimi Code](https://www.kimi.com). Originally developed as 
 | `callers` / `callees` | Heuristic call-graph over the index; hits carry language + receiver + resolution confidence, optional file/language filters |
 | `resolution_stats` | Measure resolution coverage of the whole index: exact/likely/name-only tiers, per-`via` breakdown, import resolution rate, same-name collision groups |
 | `index_status` | Index state, totals, watcher status |
+| `delete_index` | Drop an index: clears it from the session and deletes its persisted cache files; omit `root` when exactly one index exists |
 | `list_presets` / `preset_search` | Built-in audit queries (eval/exec, subprocess, innerHTML, JDBC...) |
 | `get_node_types` | Grammar node types and fields, for writing correct query patterns |
 | `analyze_complexity` | Approximate cyclomatic complexity per function, worst first |
