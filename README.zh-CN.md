@@ -54,20 +54,6 @@
 | `get_node_types` | 列出语法的节点类型与字段，用于编写正确的查询模式 |
 | `analyze_complexity` | 按函数估算圈复杂度，按最差排序 |
 
-### 解析置信度
-
-`callers` / `callees` / `find_references` 的每个调用点命中都带置信度档位与 `via` 依据，agent 由此判断该多信它几分：
-
-- **`exact`** —— 锁定到唯一文件（及符号）：按声明类型解析的接收者（含继承、`this`/`super`、字段 / 形参 / 局部变量 / for-each / catch 类型、经仓内方法返回类型的链式接收者）、唯一 import、java 的 `new Foo()` 构造调用、Lombok 风格访问器。
-- **`likely`** —— 无硬依据的最佳猜测：接收者类型在索引内唯一但成员本体不在仓内（如 MyBatis-Plus 的 `mapper.selectList()`）、同目录、全索引内唯一名字。
-- **`name`** —— 未解析；DI 注入的 bean、反射，以及成员或返回类型跳出索引的调用（如 `stream().map()`）。
-
-`resolution_stats` 输出整个索引的覆盖率数字，先量化精度再信任调用图。
-
-### 新鲜度
-
-索引绝不静默地返回过期答案：读取前先冲刷 watcher 挂起的改动；当积压未清完就答复查询时，响应会带明确的 staleness 提示并列出待处理文件，而不是假装自己是最新状态。
-
 ## 安装
 
 > **前提：** [Node.js](https://nodejs.org) ≥ 20.6。
@@ -84,29 +70,6 @@
 - 1 个只读子代理 `tree-lens-tracer`（调用链路追踪，见[子代理](#子代理)）
 
 另有常驻使用提示词（`SYSTEM.md`）与按需加载的 `code-search` skill。首次启动时 MCP 服务会自动安装运行时依赖（仅一次，需要联网）。五种语言的 grammar WASM 已预编译打包，加载时做 SHA-256 完整性校验——全程无需任何构建步骤。
-
-## 使用指引
-
-你只需用自然语言说：
-
-| 你说 | agent 执行 |
-|------|-----------|
-| "给 `server.js` 列个大纲，再看下 `runTool` 的实现" | `list_definitions` → `read_definition` |
-| "先索引这个仓库，然后找出谁调用了 `savePersistedIndex`" | `index_workspace` → `callers` |
-| "对这个文件做安全扫描" | `list_presets` → `preset_search` |
-| "找出所有给 `.innerHTML` 赋值的地方" | `ast_search` |
-| "这个文件里哪个函数复杂度最高？" | `analyze_complexity` |
-
-内置审计 preset 覆盖：`eval`/`exec`、`shell=True` 子进程、`pickle`/`marshal`、`innerHTML` 赋值、动态 `import()`、`dangerouslySetInnerHTML`、JDBC `execute`、`System.exit`、反射类加载、`os/exec`、`panic`、`unsafe.Pointer`。
-
-### 管理
-
-```text
-/plugins list
-/plugins info tree-lens
-```
-
-MCP server 由插件管理：用 `/plugins mcp enable|disable tree-lens` 即可启停。
 
 ## 子代理
 
@@ -131,26 +94,11 @@ MCP server 由插件管理：用 `/plugins mcp enable|disable tree-lens` 即可�
 - **资源上限** —— 单文件 1 MB、NUL 字节二进制拒绝、每个工具软/硬双超时（超时的 worker 会被替换）、索引规模受限（SQLite 默认 20000 文件 / 硬上限 100000；JSON 回退 1500 / 5000；深度 40）、输出条数与长度截断。
 - **无网络、无子进程** —— 服务端只读取允许范围内的文件，索引缓存只写入 `~/.kimi-code/tree-sitter-plugin-cache/`。
 
-## 测试
-
-```bash
-npm test               # 113 项测试：冒烟（路径围栏、超时、缓存、watcher……）、调用图、解析置信度、多索引、双存储、新鲜度
-npm run test:corpus    # 解析官方 tree-sitter 语料并与期望语法树逐一比对
-```
-
 ## 可参考的项目基准测试报告
-
-2026-08-29 实测：本地项目仓库（Spring/MyBatis，Java，`node scripts/bench-precision.mjs`）与生成的 2 万文件 Python 语料（`node scripts/bench-scale.mjs --files 20000`），均为 SQLite 存储：
 
 | 指标 | 数值 |
 |---|---|
 | 冷索引（449 个 Java 文件、4088 符号） | ~1.1s |
-| 调用点 | 9963（8404 带接收者） |
-| exact | 4354（43.7%）—— 接收者类型 3519、同文件 419、import 416 |
-| likely | 1651（16.6%）—— 主要是外部基类锚定 |
-| 仅名字匹配 | 3958（39.7%） |
-| import 名字解析率 | 1166/3299（35.3%） |
-| 规模 · 索引文件数（2 万文件 Python 语料） | 20000（60000 符号、100000 引用） |
 | 规模 · 冷索引 | 3.4s（约 5846 文件/秒） |
 | 规模 · 单文件增量重索引 | 213ms（parsed=1, reused=19999） |
 | 规模 · 查询延迟（200 次随机查找） | p50 0ms / p95 1ms / max 150ms |

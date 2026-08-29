@@ -55,20 +55,6 @@ A managed plugin for [Kimi Code](https://www.kimi.com).
 | `get_node_types` | Grammar node types and fields, for writing correct query patterns |
 | `analyze_complexity` | Approximate cyclomatic complexity per function, worst first |
 
-### Confidence
-
-Every call-site hit from `callers` / `callees` / `find_references` carries a confidence tier and a `via` reason, so the agent knows how much to trust it:
-
-- **`exact`** — pinned to one file (and symbol): declared receiver types (including inheritance, `this`/`super`, field / parameter / local / for-each / catch types, chained in-repo return types), unique imports, java `new Foo()` constructor calls, Lombok-style accessors.
-- **`likely`** — best guess without a hard pin: receiver type unique in the index but member outside it (e.g. MyBatis-Plus `mapper.selectList()`), same-dir, globally unique name.
-- **`name`** — unresolved; DI-injected beans, reflection, and calls whose member or return types leave the index (e.g. `stream().map()`).
-
-`resolution_stats` reports coverage for the whole index, so precision can be quantified before trusting a call graph.
-
-### Freshness
-
-The index never serves stale answers silently: reads flush pending watcher changes first, and when a query answers before the backlog drains, the response carries an explicit staleness banner listing the pending files instead of pretending it is current.
-
 ## Install
 
 > **Prerequisite:** [Node.js](https://nodejs.org) ≥ 20.6.
@@ -85,29 +71,6 @@ Then `/reload` or start a new session — that's it. Installing automatically re
 - 1 read-only sub-agent, `tree-lens-tracer` (call-chain tracing; see [Sub-agents](#sub-agents))
 
 Plus the always-on usage prompt (`SYSTEM.md`) and the on-demand `code-search` skill. On first launch the MCP server installs its runtime dependencies automatically (one-time, needs network). Grammar WASMs for all five languages ship prebuilt and are SHA-256-verified at load time — no build step is ever required.
-
-## Usage
-
-Just ask in natural language:
-
-| You say | What the agent runs |
-|---------|---------------------|
-| "Outline `server.js`, then show me the `runTool` definition" | `list_definitions` → `read_definition` |
-| "Index this repo, then find who calls `savePersistedIndex`" | `index_workspace` → `callers` |
-| "Security-scan this file for dangerous patterns" | `list_presets` → `preset_search` |
-| "Find every assignment to `.innerHTML`" | `ast_search` |
-| "Which function in this file is the complexity hotspot?" | `analyze_complexity` |
-
-Built-in audit presets cover `eval`/`exec`, subprocess with `shell`, `pickle`/`marshal`, `innerHTML` assignment, dynamic `import()`, `dangerouslySetInnerHTML`, JDBC `execute`, `System.exit`, reflection class loading, `os/exec`, `panic` and `unsafe.Pointer`.
-
-### Manage it
-
-```text
-/plugins list
-/plugins info tree-lens
-```
-
-The MCP server is plugin-managed: toggle it with `/plugins mcp enable|disable tree-lens`.
 
 ## Sub-agents
 
@@ -132,26 +95,11 @@ This plugin is designed to be pointed at arbitrary code by an LLM agent:
 - **Resource caps** — 1 MB per file, NUL-byte binary rejection, soft/hard deadlines per tool (timed-out workers are replaced), bounded index (SQLite default 20000 files / hard 100000; JSON fallback 1500 / 5000; depth 40) and bounded output sizes.
 - **No network, no subprocess** — the server only reads files under allowed roots and writes its index cache under `~/.kimi-code/tree-sitter-plugin-cache/`.
 
-## Tests
-
-```bash
-npm test               # 113-case suite: smoke (confinement, timeouts, cache, watcher...), call graph, resolution, multi-index, stores, freshness
-npm run test:corpus    # parses official tree-sitter corpora and diffs against expected trees
-```
-
 ## Reference project benchmark report
-
-Measured 2026-08-29 on a local project repo (Spring/MyBatis, Java, `node scripts/bench-precision.mjs`) and a generated 20k-file Python corpus (`node scripts/bench-scale.mjs --files 20000`), both with the SQLite store:
 
 | metric | value |
 |---|---|
 | cold index (449 Java files, 4088 symbols) | ~1.1s |
-| call sites | 9963 (8404 with receiver) |
-| exact | 4354 (43.7%) — receiver type 3519, local 419, import 416 |
-| likely | 1651 (16.6%) — mostly external-base anchoring |
-| name-only | 3958 (39.7%) |
-| import names resolved | 1166/3299 (35.3%) |
-| scale · files indexed (20k-file Python corpus) | 20000 (60000 symbols, 100000 refs) |
 | scale · cold index | 3.4s (~5846 files/s) |
 | scale · single-file incremental re-index | 213ms (parsed=1, reused=19999) |
 | scale · query latency (200 randomized lookups) | p50 0ms / p95 1ms / max 150ms |
