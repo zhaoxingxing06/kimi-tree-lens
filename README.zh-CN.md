@@ -56,7 +56,7 @@
 | `read_definition` | 按名称精确读取某个定义的源码 |
 | `ast_search` | 对文件执行 tree-sitter 查询（S-expression 模式） |
 | `index_workspace` | 解析目录下所有受支持的源码，构建符号索引 |
-| `find_references` / `go_to_definition` | 基于索引的符号跳转与引用查找 |
+| `find_references` / `go_to_definition` | 基于索引的符号跳转与引用查找；`find_references` 支持可选 `file` 参数把结果限定到单个文件（低成本消歧同名定义） |
 | `callers` / `callees` | 基于索引的启发式调用图；结果带语言与调用接收者，支持 file/language 过滤 |
 | `index_status` | 查看索引状态、总量与 watcher |
 | `list_presets` / `preset_search` | 内置审计查询（eval/exec、subprocess、innerHTML、JDBC……） |
@@ -157,7 +157,8 @@ tools:
   并在结果中报告所用索引的 root 与 index_version。
 - 交付物只允许：结论 + `file:line` 引用列表 + 版本核对结果；
   禁止粘贴原始 JSON dump 或代码大段。
-- find_references/callers/callees 是纯名字匹配，模糊命中必须用 Read 复核关键结果后再下结论。
+- find_references/callers/callees 是纯名字匹配，模糊命中必须用 Read 复核关键结果后再下结论；
+  存在同名定义时，可给 find_references 传 `file` 参数把命中范围限定到单个文件。
 ````
 
 **规则二 —— 把子代理当成刚进门的同事来交代任务。** 它看不到你们的对话，每个任务提示都应写明：
@@ -196,7 +197,7 @@ tools:
 | `TREE_SITTER_MCP_POOL` | `2` | Worker 池大小（1–4） |
 | `TREE_SITTER_MCP_CACHE_DIR` | `~/.kimi-code/tree-sitter-plugin-cache` | 索引持久化目录 |
 | `TREE_SITTER_MCP_USER_QUERIES` | `~/.kimi-code/tree-sitter-queries` | 用户 `.scm` 查询目录 |
-| `TREE_SITTER_MCP_WATCH_DEBOUNCE_MS` | `800` | 文件 watcher 防抖 |
+| `TREE_SITTER_MCP_WATCH_DEBOUNCE_MS` | `800` | 文件 watcher 防抖；持续写入达到该值 5 倍时长后强制刷新一次 |
 | `TREE_SITTER_MCP_CACHE_SPIN_MS` | `2000` | 树缓存新鲜度轮询间隔 |
 
 ## 测试

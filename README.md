@@ -56,7 +56,7 @@ A managed plugin for [Kimi Code](https://www.kimi.com). Originally developed as 
 | `read_definition` | Read one definition's source by exact name |
 | `ast_search` | Run a tree-sitter query (S-expression pattern) against a file |
 | `index_workspace` | Parse all supported sources under a directory into a symbol index |
-| `find_references` / `go_to_definition` | Name-based navigation over the index |
+| `find_references` / `go_to_definition` | Name-based navigation over the index; `find_references` accepts an optional `file` arg to scope results to one file (cheap disambiguation of same-named definitions) |
 | `callers` / `callees` | Heuristic call-graph over the index; hits carry language + receiver, optional file/language filters |
 | `index_status` | Index state, totals, watcher status |
 | `list_presets` / `preset_search` | Built-in audit queries (eval/exec, subprocess, innerHTML, JDBC...) |
@@ -160,7 +160,8 @@ Rules:
 - Deliverables: conclusions + `file:line` references + the version check. No raw JSON
   dumps, no large code blocks.
 - find_references/callers/callees are name-based; verify key hits with Read before
-  drawing conclusions.
+  drawing conclusions. Pass `file` to find_references to scope hits to one file
+  when same-named definitions exist.
 ````
 
 **Rule 2 — brief the sub-agent like a colleague.** It has not seen your conversation. Every task prompt should spell out:
@@ -199,7 +200,7 @@ This plugin is designed to be pointed at arbitrary code by an LLM agent:
 | `TREE_SITTER_MCP_POOL` | `2` | Worker pool size (1–4) |
 | `TREE_SITTER_MCP_CACHE_DIR` | `~/.kimi-code/tree-sitter-plugin-cache` | Persisted index location |
 | `TREE_SITTER_MCP_USER_QUERIES` | `~/.kimi-code/tree-sitter-queries` | User `.scm` queries directory |
-| `TREE_SITTER_MCP_WATCH_DEBOUNCE_MS` | `800` | File-watcher debounce |
+| `TREE_SITTER_MCP_WATCH_DEBOUNCE_MS` | `800` | File-watcher debounce; a forced flush runs after 5x this wait even under sustained writes |
 | `TREE_SITTER_MCP_CACHE_SPIN_MS` | `2000` | Tree-cache freshness poll interval |
 
 ## Tests
