@@ -84,12 +84,28 @@
 
 > **前提：** [Node.js](https://nodejs.org) ≥ 20.6（自带 `npm`）。
 
+> **从 1.x 升级（破坏性变更）：** MCP server 不再由插件声明。更新后请按下文在 `mcp.json` 里补一条配置——工具名从 `mcp__plugin-tree-lens_tree-lens__*` 变为 `mcp__tree-lens__*`，自定义 agent 工具白名单等引用旧名的地方需同步修改。
+
 在 Kimi Code 里执行：
 
 ```text
 /plugins install https://github.com/zhaoxingxing06/kimi-tree-lens
-/reload
 ```
+
+然后自行在 `~/.kimi-code/mcp.json` 中注册 MCP server（插件不再自带声明，这样工具名更短——是 `mcp__tree-lens__*` 而不是 `mcp__plugin-tree-lens_tree-lens__*`）：
+
+```json
+{
+  "mcpServers": {
+    "tree-lens": {
+      "command": "node",
+      "args": ["/absolute/path/to/kimi-tree-lens/launcher.mjs"]
+    }
+  }
+}
+```
+
+`args` 指向插件受管副本里的 launcher（`~/.kimi-code/plugins/managed/tree-lens/launcher.mjs`，`~` 需自行展开）或本地克隆目录，然后 `/reload` 或开新会话。
 
 装完了。首次启动时 MCP 服务会自动安装运行时依赖（仅一次，需要联网）。五种语言的 grammar WASM 已预编译打包，加载时做 SHA-256 完整性校验——全程无需任何构建步骤。
 
@@ -113,7 +129,7 @@ npm run build:grammars          # 克隆锁定的 tree-sitter tag、构建 WASM�
 
 ## 使用指引
 
-`/reload` 之后（或任何新会话里），`tree-lens` 的 MCP 工具对 agent 自动可用，零配置。自带的 `code-search` skill 会在会话启动时加载，agent 已经知道何时、如何使用这些工具——你只需用自然语言说：
+`/reload` 之后（或任何新会话里），`tree-lens` 的 MCP 工具（`mcp__tree-lens__*`）对 agent 可用。自带的 `code-search` skill 会在会话启动时加载，agent 已经知道何时、如何使用这些工具——你只需用自然语言说：
 
 | 你说 | agent 执行 |
 |------|-----------|
@@ -139,8 +155,9 @@ npm run build:grammars          # 克隆锁定的 tree-sitter tag、构建 WASM�
 ```text
 /plugins list
 /plugins info tree-lens
-/plugins mcp disable tree-lens tree-lens      # 停用其 MCP 服务
 ```
+
+MCP server 不由插件管理，`/plugins mcp enable|disable` 对它无效——要停用，在 `mcp.json` 里给 `tree-lens` 条目设 `"enabled": false`（或直接删除该条目）。
 
 ## 与子代理（sub-agent）协作使用
 
@@ -157,18 +174,18 @@ tools:
   - Read
   - Grep
   - Glob
-  - mcp__plugin-tree-lens_tree-lens__find_references
-  - mcp__plugin-tree-lens_tree-lens__go_to_definition
-  - mcp__plugin-tree-lens_tree-lens__index_status
-  - mcp__plugin-tree-lens_tree-lens__callers
-  - mcp__plugin-tree-lens_tree-lens__callees
-  - mcp__plugin-tree-lens_tree-lens__list_definitions
-  - mcp__plugin-tree-lens_tree-lens__read_definition
-  - mcp__plugin-tree-lens_tree-lens__ast_search
-  - mcp__plugin-tree-lens_tree-lens__analyze_complexity
-  - mcp__plugin-tree-lens_tree-lens__list_presets
-  - mcp__plugin-tree-lens_tree-lens__preset_search
-  - mcp__plugin-tree-lens_tree-lens__get_node_types
+  - mcp__tree-lens__find_references
+  - mcp__tree-lens__go_to_definition
+  - mcp__tree-lens__index_status
+  - mcp__tree-lens__callers
+  - mcp__tree-lens__callees
+  - mcp__tree-lens__list_definitions
+  - mcp__tree-lens__read_definition
+  - mcp__tree-lens__ast_search
+  - mcp__tree-lens__analyze_complexity
+  - mcp__tree-lens__list_presets
+  - mcp__tree-lens__preset_search
+  - mcp__tree-lens__get_node_types
 ---
 
 你是只读检索代理。索引由主 agent 负责，你没有 index_workspace 工具，不得尝试重建索引。

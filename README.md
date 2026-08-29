@@ -85,12 +85,28 @@ The index never serves stale answers silently. Reads flush pending watcher chang
 
 > **Prerequisite:** [Node.js](https://nodejs.org) ≥ 20.6 (`npm` included).
 
+> **Upgrading from 1.x (breaking):** the MCP server is no longer declared by the plugin. After updating, add the `mcp.json` entry shown below — tool names change from `mcp__plugin-tree-lens_tree-lens__*` to `mcp__tree-lens__*`, so any tool whitelists (e.g. custom agents) referencing the old names must be updated too.
+
 In Kimi Code, run:
 
 ```text
 /plugins install https://github.com/zhaoxingxing06/kimi-tree-lens
-/reload
 ```
+
+Then register the MCP server yourself in `~/.kimi-code/mcp.json` (the plugin does not declare it, keeping tool names short — `mcp__tree-lens__*` instead of `mcp__plugin-tree-lens_tree-lens__*`):
+
+```json
+{
+  "mcpServers": {
+    "tree-lens": {
+      "command": "node",
+      "args": ["/absolute/path/to/kimi-tree-lens/launcher.mjs"]
+    }
+  }
+}
+```
+
+Point `args` at the launcher inside the plugin's managed copy (`~/.kimi-code/plugins/managed/tree-lens/launcher.mjs`, expand the `~` yourself) or at a local clone, then `/reload` or start a new session.
 
 That's it. On first launch the MCP server installs its runtime dependencies automatically (one-time, needs network). Grammar WASMs for all five languages ship prebuilt and are SHA-256-verified at load time — no build step is ever required.
 
@@ -114,7 +130,7 @@ npm run build:grammars          # clones pinned tree-sitter tags, builds WASM, r
 
 ## Usage
 
-After `/reload` — or in any new session — the `tree-lens` MCP tools are available to the agent with zero configuration. The bundled `code-search` skill is loaded at session start, so the agent already knows when and how to reach for them. Just ask in natural language:
+After `/reload` — or in any new session — the `tree-lens` MCP tools (`mcp__tree-lens__*`) are available to the agent. The bundled `code-search` skill is loaded at session start, so the agent already knows when and how to reach for them. Just ask in natural language:
 
 | You say | What the agent runs |
 |---------|---------------------|
@@ -140,8 +156,9 @@ Drop your own query files (hot-reloaded on change):
 ```text
 /plugins list
 /plugins info tree-lens
-/plugins mcp disable tree-lens tree-lens      # disable its MCP server
 ```
+
+The MCP server is not plugin-managed, so `/plugins mcp enable|disable` does not apply to it — to disable it, set `"enabled": false` on the `tree-lens` entry in `mcp.json` (or remove the entry).
 
 ## Using it with sub-agents
 
@@ -160,18 +177,18 @@ tools:
   - Read
   - Grep
   - Glob
-  - mcp__plugin-tree-lens_tree-lens__find_references
-  - mcp__plugin-tree-lens_tree-lens__go_to_definition
-  - mcp__plugin-tree-lens_tree-lens__index_status
-  - mcp__plugin-tree-lens_tree-lens__callers
-  - mcp__plugin-tree-lens_tree-lens__callees
-  - mcp__plugin-tree-lens_tree-lens__list_definitions
-  - mcp__plugin-tree-lens_tree-lens__read_definition
-  - mcp__plugin-tree-lens_tree-lens__ast_search
-  - mcp__plugin-tree-lens_tree-lens__analyze_complexity
-  - mcp__plugin-tree-lens_tree-lens__list_presets
-  - mcp__plugin-tree-lens_tree-lens__preset_search
-  - mcp__plugin-tree-lens_tree-lens__get_node_types
+  - mcp__tree-lens__find_references
+  - mcp__tree-lens__go_to_definition
+  - mcp__tree-lens__index_status
+  - mcp__tree-lens__callers
+  - mcp__tree-lens__callees
+  - mcp__tree-lens__list_definitions
+  - mcp__tree-lens__read_definition
+  - mcp__tree-lens__ast_search
+  - mcp__tree-lens__analyze_complexity
+  - mcp__tree-lens__list_presets
+  - mcp__tree-lens__preset_search
+  - mcp__tree-lens__get_node_types
 ---
 
 You are a read-only retrieval agent. Indexing is owned by the main agent; you have no

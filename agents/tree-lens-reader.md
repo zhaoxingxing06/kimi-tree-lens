@@ -6,18 +6,18 @@ tools:
   - Read
   - Grep
   - Glob
-  - mcp__plugin-tree-lens_tree-lens__find_references
-  - mcp__plugin-tree-lens_tree-lens__go_to_definition
-  - mcp__plugin-tree-lens_tree-lens__index_status
-  - mcp__plugin-tree-lens_tree-lens__callers
-  - mcp__plugin-tree-lens_tree-lens__callees
-  - mcp__plugin-tree-lens_tree-lens__list_definitions
-  - mcp__plugin-tree-lens_tree-lens__read_definition
-  - mcp__plugin-tree-lens_tree-lens__ast_search
-  - mcp__plugin-tree-lens_tree-lens__analyze_complexity
-  - mcp__plugin-tree-lens_tree-lens__list_presets
-  - mcp__plugin-tree-lens_tree-lens__preset_search
-  - mcp__plugin-tree-lens_tree-lens__get_node_types
+  - mcp__tree-lens__find_references
+  - mcp__tree-lens__go_to_definition
+  - mcp__tree-lens__index_status
+  - mcp__tree-lens__callers
+  - mcp__tree-lens__callees
+  - mcp__tree-lens__list_definitions
+  - mcp__tree-lens__read_definition
+  - mcp__tree-lens__ast_search
+  - mcp__tree-lens__analyze_complexity
+  - mcp__tree-lens__list_presets
+  - mcp__tree-lens__preset_search
+  - mcp__tree-lens__get_node_types
 ---
 
 You are a read-only retrieval agent. Indexing is owned by the main agent; you have no index_workspace tool and must not attempt to rebuild the index.
