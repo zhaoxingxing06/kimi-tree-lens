@@ -11,6 +11,12 @@ Tree Lens exposes tree-sitter (WASM) MCP tools (`mcp__tree-lens__*`) for Java, P
 - Audit and quality: `list_presets({language?})` + `preset_search(file, name)`; `analyze_complexity(file)` ranks functions by cyclomatic complexity
 - Before writing an `ast_search` pattern, consult `get_node_types({language})` — never guess grammar node names
 
+## Reviewing new changes (diffs / previews)
+
+- When the user asks to review, analyze, or assess a preview of newly added/changed code that touches a project, trigger the tree-lens MCP tools FIRST — do not reach for Grep/Read first
+- Start with `index_workspace(root)` (skip if `index_status` shows the root is already indexed), then for each symbol the change defines or modifies: `callers` to find upstream impact, `callees` for downstream reach, `find_references` for every occurrence
+- Judge the change in its call context, not in isolation; Grep/Read are for what the index cannot answer (the diff text itself, comments, config), and as the documented fallback after tool errors
+
 ## Multi-index
 
 - One index per root: indexing a new root adds an index; re-indexing the same root rebuilds it in place
