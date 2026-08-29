@@ -8,6 +8,12 @@
   "homepage": "https://github.com/zhaoxingxing06/kimi-tree-lens",
   "skills": "./skills/",
   "systemPromptPath": "./SYSTEM.md",
+  "mcpServers": {
+    "tree-lens": {
+      "command": "node",
+      "args": ["./launcher.mjs"]
+    }
+  },
   "interface": {
     "displayName": "Kimi Tree Lens",
     "shortDescription": "Syntax-tree X-ray: outline, AST search, symbol index, audit presets",
