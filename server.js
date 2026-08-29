@@ -88,7 +88,12 @@ async function ensureIndex(op, requestedRoot) {
     rec = indexes.get(normPath(path.resolve(requestedRoot)));
     if (!rec) return { build: requestedRoot };
   } else {
-    if (indexes.size === 0) return { build: null };
+    if (indexes.size === 0) {
+      // no index yet: try to discover a project root from the server's cwd and auto-build
+      const root = await discoverRoot(process.cwd(), true);
+      if (!root) return { build: null };
+      return { build: root };
+    }
     if (indexes.size === 1) rec = indexes.values().next().value;
     else return { error: `multiple indexes exist (${[...indexes.keys()].join(", ")}); pass root to choose one` };
   }
