@@ -1,6 +1,6 @@
 {
   "name": "tree-lens",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Syntax-tree X-ray for Kimi Code: structural code navigation via tree-sitter (WASM)",
   "keywords": ["tree-sitter", "mcp", "ast", "code-navigation", "security-audit"],
   "license": "MIT",
@@ -14,6 +14,26 @@
       "args": ["./launcher.mjs"]
     }
   },
+  "hooks": [
+    {
+      "event": "PreToolUse",
+      "matcher": "Edit|Write",
+      "command": "node ./hooks/edit-gate.mjs",
+      "timeout": 30
+    },
+    {
+      "event": "PreToolUse",
+      "matcher": "Bash",
+      "command": "node ./hooks/bash-gate.mjs",
+      "timeout": 10
+    },
+    {
+      "event": "PostToolUse",
+      "matcher": "Read|Edit|Write|Bash",
+      "command": "node ./hooks/read-ledger.mjs",
+      "timeout": 10
+    }
+  ],
   "interface": {
     "displayName": "Kimi Tree Lens",
     "shortDescription": "Syntax-tree X-ray: outline, AST search, symbol index, audit presets",

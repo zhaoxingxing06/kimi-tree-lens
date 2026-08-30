@@ -4,7 +4,7 @@ Tree Lens exposes tree-sitter (WASM) MCP tools (`mcp__tree-lens__*`) for Java, P
 
 ## Tool selection
 
-- Outline a file or find where a definition lives -> `list_definitions(file)`
+- Outline a file or find where a definition lives -> `list_definitions(file)`; `cached_outline(file)` is the cheap variant — it parses and caches the outline, later calls on the same file are cache hits
 - Read one method/class/function body -> `read_definition(file, name)`; prefer this over `Read` on large files
 - AST-shaped search that Grep cannot express -> `ast_search(file, pattern)`; Grep is for strings, comments, and config files only
 - Workspace-wide questions: run `index_workspace(root)` once, then `find_references(name)`, `go_to_definition(name, file?)`, `callers(name)` / `callees(name)`

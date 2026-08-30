@@ -1,6 +1,7 @@
 import path from "node:path";
 import fs from "node:fs/promises";
 import os from "node:os";
+import { createHash } from "node:crypto";
 import { Worker } from "node:worker_threads";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -23,6 +24,7 @@ const BASE_DEADLINES = {
   callees: 15000,
   resolution_stats: 60000,
   delete_index: 15000,
+  cached_outline: 15000,
 };
 const envDeadline = Number(process.env.TREE_SITTER_MCP_TIMEOUT_MS);
 const DEADLINES = Object.fromEntries(
@@ -40,6 +42,48 @@ const HINTS = {
 };
 
 const AUTO_POOL = Math.max(2, Math.min(os.availableParallelism?.() ?? os.cpus().length, 6));
+
+const OUTLINE_DIR =
+  process.env.TREE_SITTER_MCP_OUTLINE_DIR ??
+  path.join(process.env.KIMI_CODE_HOME ?? path.join(os.homedir(), ".kimi-code"), "tree-lens-hook", "outlines");
+
+function outlineCacheFile(abs) {
+  const key = createHash("sha1").update(abs).digest("hex");
+  return path.join(OUTLINE_DIR, `${key}.json`);
+}
+
+async function readOutlineCache(abs, st) {
+  try {
+    const cached = JSON.parse(await fs.readFile(outlineCacheFile(abs), "utf8"));
+    if (cached.mtimeMs !== st.mtimeMs || cached.size !== st.size || !Array.isArray(cached.defs)) return null;
+    return {
+      lang: cached.lang,
+      count: cached.count,
+      truncated: cached.truncated ?? false,
+      defs: cached.defs,
+      parsed_at: cached.parsedAt,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function writeOutlineCache(abs, st, data) {
+  if (!st || !Array.isArray(data.defs)) return;
+  await fs.mkdir(OUTLINE_DIR, { recursive: true });
+  const entry = {
+    v: 1,
+    file: abs,
+    lang: data.lang,
+    size: st.size,
+    mtimeMs: st.mtimeMs,
+    parsedAt: Date.now(),
+    count: data.count,
+    truncated: data.truncated ?? false,
+    defs: data.defs,
+  };
+  await fs.writeFile(outlineCacheFile(abs), JSON.stringify(entry));
+}
 const POOL_SIZE = Math.min(Math.max(Number(process.env.TREE_SITTER_MCP_POOL) || AUTO_POOL, 1), 8);
 const workers = [];
 let seq = 0;
@@ -416,6 +460,23 @@ async function runTool(op, args) {
       }
       return respond({ ok: true, deleted: rec.root, ...(msg.data ?? {}) });
     }
+    if (op === "cached_outline") {
+      const st = await fs.stat(abs).catch(() => null);
+      const cached = st ? await readOutlineCache(abs, st) : null;
+      const policyFields = {
+        ...(pathPolicy ? { path_policy: pathPolicy } : {}),
+        ...(rootsSource ? { roots_source: rootsSource } : {}),
+      };
+      if (cached) {
+        return respond({ ok: true, source: "cache", file: abs, ...policyFields, ...cached });
+      }
+      const { msg } = await callWorker("list_definitions", payload, hard, null);
+      if (msg.ok) {
+        await writeOutlineCache(abs, st, msg.data).catch(() => {});
+        return respond({ ok: true, source: "parsed", file: abs, ...policyFields, ...msg.data });
+      }
+      return respond({ ok: false, error: msg.error, hint: HINTS[msg.errorKind] ?? HINTS.internal });
+    }
     const { msg, entry } = await callWorker(op, payload, hard, sticky);
     if (msg.ok) {
       if (op === "index_workspace") registerIndex(payload.root, entry);
@@ -458,6 +519,23 @@ server.registerTool(
     },
   },
   (args) => runTool("list_definitions", args)
+);
+
+server.registerTool(
+  "cached_outline",
+  {
+    title: "Read a file's cached definition outline",
+    description:
+      "Return the definition outline (name, kind, line ranges) of a source file from the outline cache that the post-query hook populates after every Read/Grep/Glob. On a cache miss or stale mtime, falls back to a live parse and refreshes the cache. Cheaper than reading the whole file — use it to triage search results before deciding which files to read.",
+    inputSchema: {
+      file: z.string().describe("file path"),
+      language: z
+        .enum(SUPPORTED)
+        .optional()
+        .describe("override language inference (used only on cache miss)"),
+    },
+  },
+  (args) => runTool("cached_outline", args)
 );
 
 server.registerTool(

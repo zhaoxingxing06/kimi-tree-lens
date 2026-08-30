@@ -43,6 +43,7 @@ A managed plugin for [Kimi Code](https://www.kimi.com).
 | Tool | Purpose |
 |------|---------|
 | `list_definitions` | Outline a file (classes, functions, methods, fields...) with line ranges |
+| `cached_outline` | Parse a file's outline and cache it (later calls on the same file are cache hits); cheap triage of search results before reading files |
 | `read_definition` | Read one definition's source by exact name |
 | `ast_search` | Run a tree-sitter query (S-expression pattern) against a file |
 | `index_workspace` | Parse all supported sources under a directory into a symbol index |
@@ -69,12 +70,29 @@ Then `/reload` or start a new session — that's it. Installing automatically re
 
 - the `tree-lens` MCP server — all tools become available as `mcp__tree-lens__*`
 - 1 read-only sub-agent, `tree-lens-tracer` (call-chain tracing; see [Sub-agents](#sub-agents))
+- 3 hooks enforcing a read-before-edit gate (see [Read-before-edit gate](#read-before-edit-gate))
 
 Plus the always-on usage prompt (`SYSTEM.md`) and the on-demand `code-search` skill. On first launch the MCP server installs its runtime dependencies automatically (one-time, needs network). Grammar WASMs for all five languages ship prebuilt and are SHA-256-verified at load time — no build step is ever required.
 
 ## Sub-agents
 
 Installing also registers 1 read-only sub-agent, **`tree-lens-tracer`** — it has no write tools and no `index_workspace` (indexing stays with the main agent), traces "who calls X / what does X call" through `callers` / `callees` / `ast_search`, and returns the chain as a box-drawn tree of nodes, each node backed by `file:line` evidence and a confidence tier.
+
+## Outline cache
+
+The `cached_outline(file)` MCP tool parses a supported source file into a definition outline (name, kind, line ranges — no code) and caches it at `~/.kimi-code/tree-lens-hook/outlines/` keyed by `size` + `mtimeMs`; later calls on an unchanged file are cache hits. Use it to triage search results before deciding which files to read.
+
+## Read-before-edit gate
+
+While the plugin is enabled, three hooks enforce "read before you write" per session (fail-open: if a hook crashes or times out, the operation proceeds):
+
+| Hook | Event | Behavior |
+|------|-------|----------|
+| `read-ledger.mjs` | PostToolUse on `Read`/`Edit`/`Write`/`Bash` | Records every file the session touches into a per-session ledger |
+| `edit-gate.mjs` | PreToolUse on `Edit`/`Write` | Blocks editing an existing file that has not been Read this session; also defers an edit once when the file's definitions have call sites in files not yet read (and kicks off a background index build if the project has none) |
+| `bash-gate.mjs` | PreToolUse on `Bash` | Blocks shell writes (`>`, `>>`, `tee`, `sed -i`, `rm`, `mv`, `cp`) to files not read this session |
+
+Writing a brand-new file is always exempt (the target does not exist yet). Ledger state lives under `~/.kimi-code/tree-lens-gate/`, keyed by session id + cwd.
 
 ## Troubleshooting
 

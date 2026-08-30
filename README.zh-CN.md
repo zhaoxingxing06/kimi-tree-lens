@@ -43,6 +43,7 @@
 | 工具 | 用途 |
 |------|------|
 | `list_definitions` | 输出文件大纲（类、函数、方法、字段……）及行号范围 |
+| `cached_outline` | 解析文件大纲并缓存（同一文件后续调用直接命中缓存）；用于精读前对搜索结果做廉价筛选 |
 | `read_definition` | 按名称精确读取某个定义的源码 |
 | `ast_search` | 对文件执行 tree-sitter 查询（S-expression 模式） |
 | `index_workspace` | 解析目录下所有受支持的源码，构建符号索引 |
@@ -68,12 +69,29 @@
 
 - `tree-lens` MCP server——所有工具以 `mcp__tree-lens__*` 提供
 - 1 个只读子代理 `tree-lens-tracer`（调用链路追踪，见[子代理](#子代理)）
+- 3 个 hook，构成"先读后写"门禁（见[先读后写门禁](#先读后写门禁)）
 
 另有常驻使用提示词（`SYSTEM.md`）与按需加载的 `code-search` skill。首次启动时 MCP 服务会自动安装运行时依赖（仅一次，需要联网）。五种语言的 grammar WASM 已预编译打包，加载时做 SHA-256 完整性校验——全程无需任何构建步骤。
 
 ## 子代理
 
 安装后自动注册 1 个只读子代理 **`tree-lens-tracer`**——无任何写工具、也没有 `index_workspace`（索引只归主 agent），通过 `callers` / `callees` / `ast_search` 追踪"谁调用了 X / X 调用了什么"，并以带框线的节点树返回链路，每个节点都带 `file:line` 佐证与置信档。
+
+## 大纲缓存
+
+`cached_outline(file)` MCP 工具把受支持的源码文件解析为定义大纲（`name/kind/行号`，不含代码），缓存于 `~/.kimi-code/tree-lens-hook/outlines/`，按 `size` + `mtimeMs` 记忆命中；同一文件未变更时后续调用直接命中缓存。用于精读前对搜索结果做廉价筛选。
+
+## 先读后写门禁
+
+插件启用期间，三个 hook 在会话维度强制"先 Read 再写"（fail-open：hook 崩溃或超时时不拦截，照常放行）：
+
+| Hook | 事件 | 行为 |
+|------|------|------|
+| `read-ledger.mjs` | PostToolUse（`Read`/`Edit`/`Write`/`Bash`） | 把会话触及的每个文件记入按会话隔离的 ledger |
+| `edit-gate.mjs` | PreToolUse（`Edit`/`Write`） | 拦截对本会话未 Read 过的已有文件的编辑；当文件内定义在未读过的调用方文件中存在调用点时，延迟一次编辑（项目尚无索引时顺带在后台触发构建） |
+| `bash-gate.mjs` | PreToolUse（`Bash`） | 拦截对未读过文件的 shell 写入（`>`、`>>`、`tee`、`sed -i`、`rm`、`mv`、`cp`） |
+
+新建文件始终豁免（目标尚不存在）。ledger 状态存于 `~/.kimi-code/tree-lens-gate/`，按 session id + cwd 隔离。
 
 ## 常见问题
 
