@@ -123,7 +123,7 @@ process.stdin.on("end", async () => {
                     .slice(0, 3)
                     .map(
                       (h) =>
-                        `  - ${rel(root, norm(h.file))}:${h.line} calls ${h.name} (${h.confidence ?? "?"})`
+                        `  - ${rel(root, norm(h.file))}:${h.line} calls ${h.caller ?? h.name} (${h.confidence ?? "?"})`
                     );
                   block(
                     `[tree-lens edit-gate] Edit deferred once: ${rel(root, target)}\n` +
