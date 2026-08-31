@@ -14,7 +14,7 @@ try {
     command: "node",
     args: [path.join(PLUGIN_ROOT, "server.js")],
     cwd: PLUGIN_ROOT,
-    env: { ...process.env, TREE_SITTER_MCP_TIMEOUT_MS: "120000" },
+    env: { ...process.env, TREE_SITTER_MCP_TIMEOUT_MS: "120000", TREE_SITTER_MCP_IGNORE_BUILD_LOCK: "1" },
   });
   const client = new Client({ name: "tree-lens-index-builder", version: "0.0.1" });
   await client.connect(transport);

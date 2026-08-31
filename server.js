@@ -1,5 +1,6 @@
 import path from "node:path";
 import fs from "node:fs/promises";
+import fsSync from "node:fs";
 import os from "node:os";
 import { createHash } from "node:crypto";
 import { Worker } from "node:worker_threads";
@@ -331,6 +332,25 @@ function respond(res) {
   return { isError: res.ok === false, content: [{ type: "text", text: JSON.stringify(res) }] };
 }
 
+const GATE_STATE_BASE = path.join(
+  process.env.KIMI_CODE_HOME ?? path.join(os.homedir(), ".kimi-code"),
+  "tree-lens-gate"
+);
+const BUILD_LOCK_FRESH_MS = 15 * 60_000;
+
+function buildLockPathFor(rootAbs) {
+  const h = createHash("sha256").update(rootAbs).digest("hex").slice(0, 24);
+  return path.join(GATE_STATE_BASE, "store-" + h, "build.lock");
+}
+
+function buildLockFresh(lockFile) {
+  try {
+    return Date.now() - fsSync.statSync(lockFile).mtimeMs < BUILD_LOCK_FRESH_MS;
+  } catch {
+    return false;
+  }
+}
+
 async function runTool(op, args) {
   try {
     await ensureRoots();
@@ -398,10 +418,24 @@ async function runTool(op, args) {
     payload.softDeadlineMs = soft;
     let sticky = null;
     let autoIndexed = false;
+    let buildLockFile = null;
     if (op === "index_workspace") {
       const key = normPath(payload.root);
       const prev = indexes.get(key);
       sticky = prev?.entry && workers.includes(prev.entry) ? prev.entry : acquireFreeIndexWorker();
+      if (process.env.TREE_SITTER_MCP_IGNORE_BUILD_LOCK !== "1") {
+        buildLockFile = buildLockPathFor(payload.root);
+        if (buildLockFresh(buildLockFile)) {
+          return respond({
+            ok: false,
+            errorKind: "build_in_progress",
+            error: `index for ${payload.root} is being built by another session; retry shortly`,
+            hint: "wait for the background build to finish, then re-run index_workspace",
+          });
+        }
+        fsSync.mkdirSync(path.dirname(buildLockFile), { recursive: true });
+        fsSync.writeFileSync(buildLockFile, String(Date.now()));
+      }
     } else if (op === "index_status" && payload.root === undefined && indexes.size > 0) {
       // no root given: report the most recently built index and list the rest
       const rec = indexes.get(normPath(lastIndexRoot)) ?? [...indexes.values()].at(-1);
@@ -477,7 +511,16 @@ async function runTool(op, args) {
       }
       return respond({ ok: false, error: msg.error, hint: HINTS[msg.errorKind] ?? HINTS.internal });
     }
-    const { msg, entry } = await callWorker(op, payload, hard, sticky);
+    let msg, entry;
+    try {
+      ({ msg, entry } = await callWorker(op, payload, hard, sticky));
+    } finally {
+      if (buildLockFile) {
+        try {
+          fsSync.rmSync(buildLockFile);
+        } catch {}
+      }
+    }
     if (msg.ok) {
       if (op === "index_workspace") registerIndex(payload.root, entry);
       if (op === "index_status" && indexes.size > 0) {
