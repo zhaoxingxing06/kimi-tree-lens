@@ -44,13 +44,41 @@ for entry in "${SPEC[@]}"; do
   echo "[done] grammars/$lang/$lang.wasm"
 done
 
+for entry in "${SPEC[@]}"; do
+  IFS='|' read -r lang repo tag subdir <<<"$entry"
+  if [[ -n "$WANT" && " $WANT " != *" $lang "* ]]; then continue; fi
+  src="$BUILD_DIR/$repo/$subdir"
+  root="$BUILD_DIR/$repo"
+  mkdir -p "grammars/$lang"
+  if [[ -f "$src/queries/tags.scm" ]]; then
+    cp "$src/queries/tags.scm" "grammars/$lang/upstream-tags.scm"
+  elif [[ -f "$root/queries/tags.scm" ]]; then
+    cp "$root/queries/tags.scm" "grammars/$lang/upstream-tags.scm"
+  fi
+  if [[ -f "$src/queries/locals.scm" ]]; then
+    cp "$src/queries/locals.scm" "grammars/$lang/upstream-locals.scm"
+  elif [[ -f "$root/queries/locals.scm" ]]; then
+    cp "$root/queries/locals.scm" "grammars/$lang/upstream-locals.scm"
+  fi
+  if [[ -f "$src/src/node-types.json" ]]; then
+    cp "$src/src/node-types.json" "grammars/$lang/node-types.json"
+  fi
+done
+
 python3 - <<'PYEOF' > lib/grammar-hashes.json
 import hashlib, json, os
 out = {}
 for lang in sorted(os.listdir("grammars")):
-    p = os.path.join("grammars", lang, lang + ".wasm")
+    d = os.path.join("grammars", lang)
+    if not os.path.isdir(d):
+        continue
+    p = os.path.join(d, lang + ".wasm")
     if os.path.isfile(p):
         out[lang] = hashlib.sha256(open(p, "rb").read()).hexdigest()
+    for name in ("upstream-tags.scm", "upstream-locals.scm", "node-types.json"):
+        f = os.path.join(d, name)
+        if os.path.isfile(f):
+            out[lang + "." + name.rsplit(".", 1)[0]] = hashlib.sha256(open(f, "rb").read()).hexdigest()
 print(json.dumps(out, indent=2))
 PYEOF
 echo "[hashes] regenerated lib/grammar-hashes.json"

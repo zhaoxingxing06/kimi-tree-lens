@@ -1,7 +1,7 @@
-(class_declaration) @class.def
-(interface_declaration) @interface.def
-(enum_declaration) @enum.def
-(record_declaration) @record.def
-(method_declaration) @method.def
-(constructor_declaration) @method.def
-(field_declaration) @field.def
+(class_declaration) @definition.class
+(interface_declaration) @definition.interface
+(enum_declaration) @definition.enum
+(record_declaration) @definition.record
+(method_declaration) @definition.method
+(constructor_declaration) @definition.method
+(field_declaration) @definition.field

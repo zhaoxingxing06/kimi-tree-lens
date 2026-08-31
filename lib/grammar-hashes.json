@@ -1,7 +1,19 @@
 {
+  "go": "62de6d1fe0c811f194a97672fde719c1a9ca84a7f69685e88ee0883b7fcad238",
+  "go.upstream-tags": "d1a9b1f678fe0278b85054e2dc56a28ef26aa478b8c88fb2b0dd83cdcdb9db35",
+  "go.node-types": "8d77e723df0f0dfccb66d4571a5c3c17ecfb6c90959044c0992146b21f383bff",
   "java": "847e64a723bf3a116d3fb6515d1bc05f2c1337ab73fd7c767a47731296d20d24",
+  "java.upstream-tags": "bcb22147b8582d92743fc973864cefb894a4c12b3957f16f3d472b2ec7cd4c49",
+  "java.node-types": "19c46facc653381c337ff6cad75dd8b052524179a366c80825d6d0010520eef2",
   "python": "a43153418b186cd2c170ba6e848d37e7f8abfcaab275f632a64504020f491cbc",
-  "typescript": "d710c40ad64ecd117bf91f796e5dd8375969c63892c608283b193df67f3c737f",
+  "python.upstream-tags": "d0f3e577878167bfabc30e526e497bce58d1699b9bcabf8ab3a50698efb5ca3e",
+  "python.node-types": "a2456847bea3adff5b2222b2f7b03a870159470d8908622204e6eb29ee2fe45e",
   "tsx": "c110e82ca47d8d4dcae8b9e3ce9fe85ecbd448cbd2760192aff12b0282a0a20b",
-  "go": "62de6d1fe0c811f194a97672fde719c1a9ca84a7f69685e88ee0883b7fcad238"
+  "tsx.upstream-tags": "b391288bcc71b513a5df7c9bb232d8bc7418d7e274b125aa0aa4bdd6121a0338",
+  "tsx.upstream-locals": "c3680f9b56276fb2ccc9f1d5f4d03dbca5d64bdf3e6d52ce5a4ad342cec162d5",
+  "tsx.node-types": "78b5789145286799a27a0a7ecc36cc1bcb151f94ec7fa631b248459867010c8c",
+  "typescript": "d710c40ad64ecd117bf91f796e5dd8375969c63892c608283b193df67f3c737f",
+  "typescript.upstream-tags": "b391288bcc71b513a5df7c9bb232d8bc7418d7e274b125aa0aa4bdd6121a0338",
+  "typescript.upstream-locals": "c3680f9b56276fb2ccc9f1d5f4d03dbca5d64bdf3e6d52ce5a4ad342cec162d5",
+  "typescript.node-types": "c790a733fc756b54d4e54dceeb7d2d51e40d8b57136e70277753a75804cce3e3"
 }

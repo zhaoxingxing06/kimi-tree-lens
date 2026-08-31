@@ -16,6 +16,7 @@ import {
 const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const MAX_DEFS = 5;
 const MAX_SITES = 5;
+const OBJECT_METHODS = new Set(["toString", "equals", "hashCode", "getClass", "clone", "notify", "notifyAll", "wait"]);
 
 let input = "";
 process.stdin.on("data", (c) => (input += c));
@@ -145,7 +146,11 @@ process.stdin.on("end", async () => {
         try {
           res = await q("callers", { name: d.name, root, limit: 200 });
         } catch {}
+        const anchored = (h) =>
+          h.confidence === "exact" ||
+          (h.confidence === "likely" && h.resolved_to?.file === target);
         const hits = (res?.results ?? []).filter((h) => {
+          if (!anchored(h)) return false;
           if (moduleOf(root, h.file) !== targetModule) return false;
           if (typeof h.line !== "number" || h.line < 1) return false;
           if (rel(root, norm(h.file)) === null) return false;
@@ -171,7 +176,7 @@ process.stdin.on("end", async () => {
             const m = moduleOf(root, f);
             return m && m !== targetModule;
           });
-        if (others.length) {
+        if (others.length && !OBJECT_METHODS.has(d.name)) {
           const selfRaw = defText(lines, d);
           if (selfRaw) {
             const self = squash(selfRaw);

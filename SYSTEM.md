@@ -10,6 +10,7 @@ Tree Lens exposes tree-sitter (WASM) MCP tools (`mcp__tree-lens__*`) for Java, P
 - Workspace-wide questions: run `index_workspace(root)` once, then `find_references(name)`, `go_to_definition(name, file?)`, `callers(name)` / `callees(name)`
 - Audit and quality: `list_presets({language?})` + `preset_search(file, name)`; `analyze_complexity(file)` ranks functions by cyclomatic complexity
 - Before writing an `ast_search` pattern, consult `get_node_types({language})` — never guess grammar node names
+- Custom definition queries (`~/.kimi-code/tree-sitter-queries/<lang>/*.scm`) follow the official tags.scm convention: `@definition.<kind>`, optionally paired with an inner `@name` capture and an `@doc` capture (`#strip!` supported); the legacy `@<kind>.def` names still decode. `callers`/`callees` are query-driven from official `@reference.call` tags where the bundled grammar provides them (java, go, python)
 
 ## Reviewing new changes (diffs / previews)
 
@@ -25,12 +26,12 @@ Tree Lens exposes tree-sitter (WASM) MCP tools (`mcp__tree-lens__*`) for Java, P
 
 ## Interpreting results
 
-- `find_references` / `callers` / `callees` are name-based recall: prefer hits with `confidence: exact` and a `resolved_to`; `likely`/`name` hits are leads only, spot-check with Read before concluding
+- `find_references` / `callers` / `callees` are name-based recall; tiers: `exact` (receiver type / import / local resolved), `likely` (same-dir, or bare-call unique name, or receiver type anchor), `name` (receiver unresolved — a lead, never cite as fact). Hits without a confidence field (or with `external_only: true`) are calls to a name that has no definition in the workspace — external/library methods. Spot-check anything below `exact` with Read before concluding
 - Every conclusion cites `file:line` copied from tool output — never guessed
 - Zero hits is a real answer; report it plainly — never pad with Grep/Read output presented as index results
 
 ## Sub-agents (they do NOT see this text — relay it yourself)
 
-- `index_workspace` is exclusive to the main agent; delegate read-only lookups to read-only sub-agents (e.g. `tree-lens-tracer`) whose tool whitelist omits it
+- `index_workspace` is exclusive to the main agent; delegate read-only lookups to read-only sub-agents whose tool whitelist omits it — `tree-lens-tracer` (follow one call chain deep), `tree-lens-impact` (pre-change blast radius across symbols), `tree-lens-verifier` (post-change consistency checks) — pick by phase: explore with tracer, plan with impact, confirm with verifier
 - In the task prompt spell out: absolute paths, exact tool names, which `root` to query, and "re-check `index_status` and compare `index_version` before concluding" — sub-agents start with zero context
 - Require compact deliverables: conclusions + `file:line` references + the `index_version` used — never raw JSON dumps

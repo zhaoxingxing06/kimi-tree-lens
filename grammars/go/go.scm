@@ -1,3 +1,3 @@
-(function_declaration) @function.def
-(method_declaration) @method.def
-(type_spec) @type.def
+(function_declaration) @definition.function
+(method_declaration) @definition.method
+(type_spec) @definition.type

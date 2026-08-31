@@ -356,8 +356,6 @@ async function runTool(op, args) {
     await ensureRoots();
     const payload = { ...args };
     const rawPath = args.file ?? args.root;
-    let pathPolicy = null;
-    let rootsSource = null;
     let policyRoot = null;
     let abs = null;
     if (rawPath !== undefined) {
@@ -378,8 +376,6 @@ async function runTool(op, args) {
       if (!policy.ok) {
         return respond({ ok: false, error: policy.error, hint: HINTS.input });
       }
-      pathPolicy = policy.unconfined ? "unconfined" : "confined";
-      rootsSource = policy.source;
       if (policy.root && !policy.unconfined) {
         payload.confineRoot = policy.root;
         policyRoot = policy.root;
@@ -497,17 +493,13 @@ async function runTool(op, args) {
     if (op === "cached_outline") {
       const st = await fs.stat(abs).catch(() => null);
       const cached = st ? await readOutlineCache(abs, st) : null;
-      const policyFields = {
-        ...(pathPolicy ? { path_policy: pathPolicy } : {}),
-        ...(rootsSource ? { roots_source: rootsSource } : {}),
-      };
       if (cached) {
-        return respond({ ok: true, source: "cache", file: abs, ...policyFields, ...cached });
+        return respond({ ok: true, source: "cache", file: abs, ...cached });
       }
       const { msg } = await callWorker("list_definitions", payload, hard, null);
       if (msg.ok) {
         await writeOutlineCache(abs, st, msg.data).catch(() => {});
-        return respond({ ok: true, source: "parsed", file: abs, ...policyFields, ...msg.data });
+        return respond({ ok: true, source: "parsed", file: abs, ...msg.data });
       }
       return respond({ ok: false, error: msg.error, hint: HINTS[msg.errorKind] ?? HINTS.internal });
     }
@@ -527,13 +519,16 @@ async function runTool(op, args) {
         msg.data.available_roots = [...indexes.values()].map((rec) => rec.root);
       }
       if (msg.data && msg.data.lang) lastLang = msg.data.lang;
+      const data = { ...msg.data };
+      if (op === "find_references" || op === "go_to_definition" || op === "callers" || op === "callees") {
+        delete data.index_built_at;
+        if (indexes.size <= 1) delete data.index_root;
+      }
       return respond({
         ok: true,
-        ...(abs !== null ? { file: abs } : {}),
+        ...(args.file !== undefined && abs !== null ? { file: abs } : {}),
         ...(autoIndexed ? { auto_indexed: true } : {}),
-        ...(pathPolicy ? { path_policy: pathPolicy } : {}),
-        ...(rootsSource ? { roots_source: rootsSource } : {}),
-        ...msg.data,
+        ...data,
       });
     }
     return respond({ ok: false, error: msg.error, hint: HINTS[msg.errorKind] ?? HINTS.internal });

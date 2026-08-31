@@ -1,2 +1,2 @@
-(class_definition) @class.def
-(function_definition) @function.def
+(class_definition) @definition.class
+(function_definition) @definition.function

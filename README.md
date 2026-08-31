@@ -89,7 +89,7 @@ While the plugin is enabled, three hooks maintain per-session read state and sur
 | Hook | Event | Behavior |
 |------|-------|----------|
 | `read-ledger.mjs` | PostToolUse on `Read`/`Edit`/`Write`/`Bash` | Records every file the session touches into a per-session ledger |
-| `edit-gate.mjs` | PreToolUse on `Edit`/`Write` | Blocks an edit once per symbol, only when it touches definitions whose verified call sites the session has not read yet, or whose same-named copies in other modules have drifted (body differs) — re-issuing the same edit then passes. Stays silent when call sites are already read and copies are identical. Traces also append to the session `traces.log` (the callers query builds an index in the background if the project has none) |
+| `edit-gate.mjs` | PreToolUse on `Edit`/`Write` | Blocks an edit once per symbol, only when it touches definitions whose exact or type-anchored call sites the session has not read yet, or whose same-named copies in other modules have drifted (body differs; universal method names like `toString`/`equals` are skipped) — re-issuing the same edit then passes. Stays silent when call sites are already read and copies are identical. Traces also append to the session `traces.log` (the callers query builds an index in the background if the project has none) |
 | `session-index-builder.mjs` | SessionStart | Builds the workspace symbol index in the background so later queries are fast |
 
 Writing a brand-new file is always exempt (the target does not exist yet). Ledger state and the edit-trace `traces.log` live under `~/.kimi-code/tree-lens-gate/`, keyed by session id + cwd.
@@ -109,8 +109,8 @@ cross-module drift:
 ```
 
 - First line is the action: re-issue the same edit to proceed (at most one block per symbol per session)
-- `call sites not read this session`: verified call sites the session has not read yet
-- `cross-module drift`: same-named definitions in other modules whose bodies differ; omitted when all copies are identical
+- `call sites not read this session`: exact or type-anchored call sites the session has not read yet
+- `cross-module drift`: same-named definitions in other modules whose bodies differ (universal method names like `toString`/`equals` are skipped); omitted when all copies are identical
 - When both sections are empty the edit passes silently
 
 ## Troubleshooting

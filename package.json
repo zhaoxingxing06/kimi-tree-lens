@@ -10,7 +10,7 @@
   },
   "scripts": {
     "start": "node server.js",
-    "test": "node tests/smoke.mjs && node tests/callgraph.mjs && node tests/multi-index.mjs && node tests/resolve.mjs && node tests/store.mjs && node tests/freshness.mjs && node tests/cached-outline.mjs",
+    "test": "node tests/smoke.mjs && node tests/callgraph.mjs && node tests/multi-index.mjs && node tests/resolve.mjs && node tests/store.mjs && node tests/freshness.mjs && node tests/cached-outline.mjs && node tests/defs-contract.mjs",
     "test:corpus": "node tests/diff-corpus.mjs",
     "build:grammars": "bash build-wasm.sh"
   },

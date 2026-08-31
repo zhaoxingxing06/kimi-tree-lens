@@ -48,7 +48,7 @@
 | `ast_search` | 对文件执行 tree-sitter 查询（S-expression 模式） |
 | `index_workspace` | 解析目录下所有受支持的源码，构建符号索引 |
 | `find_references` / `go_to_definition` | 基于索引的符号跳转与引用查找；`find_references` 支持可选 `file` 参数把结果限定到单个文件（低成本消歧同名定义） |
-| `callers` / `callees` | 基于索引的启发式调用图；结果带语言、调用接收者与解析置信度，支持 file/language 过滤 |
+| `callers` / `callees` | 基于索引的启发式调用图；结果带语言、调用接收者与解析置信度（exact/likely/name，无置信度字段即外部/库方法调用），支持 file/language 过滤 |
 | `resolution_stats` | 度量整个索引的解析覆盖率：exact/likely/name-only 三档、按 via 细分、import 解析率、同名定义冲突组 |
 | `index_status` | 查看索引状态、总量与 watcher |
 | `list_presets` / `preset_search` | 内置审计查询（eval/exec、subprocess、innerHTML、JDBC……） |
@@ -88,7 +88,7 @@
 | Hook | 事件 | 行为 |
 |------|------|------|
 | `read-ledger.mjs` | PostToolUse（`Read`/`Edit`/`Write`/`Bash`） | 把会话触及的每个文件记入按会话隔离的 ledger |
-| `edit-gate.mjs` | PreToolUse（`Edit`/`Write`） | 条件阻断：仅当编辑触及的定义存在本会话未读的已验证调用点、或其他模块同名定义的方法体已漂移（不一致）时，按符号拦截一次，原样重发即放行；调用点已读且副本一致时静默放行。trace 同时追加到会话 `traces.log`（callers 查询会在项目尚无索引时后台触发构建） |
+| `edit-gate.mjs` | PreToolUse（`Edit`/`Write`） | 条件阻断：仅当编辑触及的定义存在本会话未读的 exact 或类型锚定调用点、或其他模块同名定义的方法体已漂移（不一致；`toString`/`equals` 等通用方法名跳过比对）时，按符号拦截一次，原样重发即放行；调用点已读且副本一致时静默放行。trace 同时追加到会话 `traces.log`（callers 查询会在项目尚无索引时后台触发构建） |
 | `session-index-builder.mjs` | SessionStart | 后台构建工作区符号索引，加速后续查询 |
 
 新建文件始终豁免（目标尚不存在）。ledger 状态与编辑 trace 的 `traces.log` 都存于 `~/.kimi-code/tree-lens-gate/`，按 session id + cwd 隔离。
@@ -108,7 +108,7 @@ cross-module drift:
 ```
 
 - 首行即动作：原样重发同一编辑即放行（每符号每次会话最多拦一次）
-- `call sites not read this session`：本会话尚未读到的已验证调用点
+- `call sites not read this session`：本会话尚未读到的 exact/类型锚定调用点
 - `cross-module drift`：其他模块同名定义的方法体已不一致；副本全一致时该段不出现
 - 两段均为空时不拦截，编辑直接通过
 
