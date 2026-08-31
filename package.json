@@ -1,6 +1,6 @@
 {
   "name": "kimi-tree-lens",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "description": "Syntax-tree X-ray for Kimi Code: multi-language structural code navigation via tree-sitter (WASM)",
   "license": "MIT",
   "type": "module",
