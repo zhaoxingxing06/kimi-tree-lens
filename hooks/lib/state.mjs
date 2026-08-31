@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+  appendFileSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -56,37 +57,57 @@ export function ledgerAdd(dir, paths) {
 }
 
 export function ledgerAddReads(dir, entries) {
-  const file = path.join(dir, "read-ledger.json");
-  const data = readJson(file, { read: [], readRanges: {} });
-  const set = new Set(data.read);
-  data.readRanges = data.readRanges ?? {};
+  const lines = [];
   for (const e of entries) {
     if (!e?.path) continue;
-    set.add(e.path);
-    if (Array.isArray(e.ranges) && e.ranges.length) {
-      const merged = new Set((data.readRanges[e.path] ?? []).map((r) => r.join("-")));
-      for (const r of e.ranges) {
-        if (Array.isArray(r) && r.length === 2 && Number.isFinite(r[0]) && Number.isFinite(r[1])) {
-          merged.add(`${r[0]}-${r[1]}`);
-        }
-      }
-      data.readRanges[e.path] = [...merged].map((s) => s.split("-").map(Number));
+    const ranges =
+      Array.isArray(e.ranges) && e.ranges.length
+        ? e.ranges.filter((r) => Array.isArray(r) && r.length === 2 && r.every(Number.isFinite))
+        : [[-1, -1]];
+    if (!ranges.length) continue;
+    lines.push(JSON.stringify({ p: e.path, r: ranges }));
+  }
+  if (!lines.length) return;
+  mkdirSync(dir, { recursive: true });
+  appendFileSync(path.join(dir, "read-ledger.log"), lines.join("\n") + "\n");
+}
+
+function ledgerEntries(dir) {
+  const out = [];
+  try {
+    for (const line of readFileSync(path.join(dir, "read-ledger.log"), "utf8").split("\n")) {
+      if (!line.trim()) continue;
+      try {
+        const e = JSON.parse(line);
+        if (e?.p && Array.isArray(e.r)) out.push(e);
+      } catch {}
+    }
+  } catch {}
+  const legacy = readJson(path.join(dir, "read-ledger.json"), null);
+  if (legacy) {
+    for (const p of legacy.read ?? []) {
+      const ranges = (legacy.readRanges?.[p] ?? []).filter(
+        (r) => Array.isArray(r) && r.length === 2 && r.every(Number.isFinite)
+      );
+      out.push({ p, r: ranges.length ? ranges : [[-1, -1]] });
     }
   }
-  data.read = [...set];
-  writeJson(file, data);
+  return out;
 }
 
 export function lineWasRead(dir, p, line) {
-  const data = readJson(path.join(dir, "read-ledger.json"), { read: [], readRanges: {} });
-  if (!data.read.includes(p)) return false;
-  const ranges = data.readRanges?.[p];
-  if (!ranges || !ranges.length) return true;
-  return ranges.some(([s, e]) => line >= s && line <= (e === -1 ? Infinity : e));
+  for (const e of ledgerEntries(dir)) {
+    if (e.p !== p) continue;
+    for (const [s, en] of e.r) {
+      if (s === -1 && en === -1) return true;
+      if (line >= s && line <= (en === -1 ? Infinity : en)) return true;
+    }
+  }
+  return false;
 }
 
 export function ledgerHas(dir, p) {
-  return readJson(path.join(dir, "read-ledger.json"), { read: [] }).read.includes(p);
+  return ledgerEntries(dir).some((e) => e.p === p);
 }
 
 export function markWarned(dir, file) {

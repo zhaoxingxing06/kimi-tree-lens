@@ -84,15 +84,15 @@ The `cached_outline(file)` MCP tool parses a supported source file into a defini
 
 ## Read-before-edit gate
 
-While the plugin is enabled, three hooks enforce "read before you write" per session (fail-open: if a hook crashes or times out, the operation proceeds):
+While the plugin is enabled, three hooks maintain per-session read state and surface call-site context around edits (fail-open: if a hook crashes or times out, the operation proceeds):
 
 | Hook | Event | Behavior |
 |------|-------|----------|
 | `read-ledger.mjs` | PostToolUse on `Read`/`Edit`/`Write`/`Bash` | Records every file the session touches into a per-session ledger |
-| `edit-gate.mjs` | PreToolUse on `Edit`/`Write` | Blocks editing an existing file that has not been Read this session; also defers an edit once when the file's definitions have call sites in files not yet read (and kicks off a background index build if the project has none) |
-| `bash-gate.mjs` | PreToolUse on `Bash` | Blocks shell writes (`>`, `>>`, `tee`, `sed -i`, `rm`, `mv`, `cp`) to files not read this session |
+| `edit-gate.mjs` | PreToolUse on `Edit`/`Write` | Blocks an edit once per symbol, only when it touches definitions whose verified call sites the session has not read yet, or whose same-named copies in other modules have drifted (body differs) — re-issuing the same edit then passes. Stays silent when call sites are already read and copies are identical. Traces also append to the session `traces.log` (the callers query builds an index in the background if the project has none) |
+| `session-index-builder.mjs` | SessionStart | Builds the workspace symbol index in the background so later queries are fast |
 
-Writing a brand-new file is always exempt (the target does not exist yet). Ledger state lives under `~/.kimi-code/tree-lens-gate/`, keyed by session id + cwd.
+Writing a brand-new file is always exempt (the target does not exist yet). Ledger state and the edit-trace `traces.log` live under `~/.kimi-code/tree-lens-gate/`, keyed by session id + cwd.
 
 ## Troubleshooting
 

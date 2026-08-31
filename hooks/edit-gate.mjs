@@ -1,6 +1,6 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -56,6 +56,16 @@ function lineAt(lines, line) {
   return lines[line - 1] ?? "";
 }
 
+function defText(lines, d) {
+  const s = d.start_line ?? 0;
+  if (!s) return null;
+  return lines.slice(s - 1, Math.min(d.end_line ?? s, lines.length)).join("\n");
+}
+
+const squash = (s) => String(s ?? "").replace(/\s+/g, "");
+
+const CONTAINER_KINDS = new Set(["class", "interface", "enum", "struct"]);
+
 async function withClient(fn) {
   const transport = new StdioClientTransport({
     command: "node",
@@ -87,7 +97,8 @@ process.stdin.on("end", async () => {
       isFile = statSync(target).isFile();
     } catch {}
     if (!isFile) process.exit(0);
-    const anchor = String(ti.old_string ?? "")
+    const oldStr = String(ti.old_string ?? "");
+    const anchor = oldStr
       .split(/\r?\n/)
       .map((s) => s.trim())
       .find((s) => s.length > 3);
@@ -105,29 +116,35 @@ process.stdin.on("end", async () => {
         const outline = await q("cached_outline", { file: target });
         if (outline.ok && Array.isArray(outline.defs)) defs = outline.defs;
       } catch {}
-      const touched = defs
-        .filter((d) => {
-          const s = d.start_line ?? 0;
-          const e = Math.min(d.end_line ?? s, lines.length);
-          for (let i = s; i <= e; i++) if (lineAt(lines, i).includes(anchor)) return true;
-          return false;
-        })
-        .filter((d) => !isWarned(dir, `${target}::${d.name}`))
-        .slice(0, MAX_DEFS);
+      const text = lines.join("\n");
+      let span = null;
+      const idx = text.indexOf(oldStr);
+      if (idx >= 0) {
+        const start = text.slice(0, idx).split("\n").length;
+        span = [start, start + oldStr.split(/\r?\n/).length - 1];
+      }
+      const inSpan = (d) => {
+        const s = d.start_line ?? 0;
+        const e = Math.min(d.end_line ?? s, lines.length);
+        if (span) return s <= span[1] && e >= span[0];
+        for (let i = s; i <= e; i++) if (lineAt(lines, i).includes(anchor)) return true;
+        return false;
+      };
+      let touched = defs.filter(inSpan);
+      if (touched.some((d) => !CONTAINER_KINDS.has(d.kind))) {
+        touched = touched.filter((d) => !CONTAINER_KINDS.has(d.kind));
+      }
+      touched = touched.filter((d) => !isWarned(dir, `${target}::${d.name}`)).slice(0, MAX_DEFS);
       if (!touched.length) return null;
 
-      const sections = [];
-      const modules = new Set();
-      let anyVerified = false;
+      const unreadSections = [];
+      const driftNotes = [];
+      let blockWorthy = false;
       for (const d of touched) {
         let res = null;
         try {
           res = await q("callers", { name: d.name, root, limit: 200 });
         } catch {}
-        for (const f of res?.defined_in ?? []) {
-          const m = moduleOf(root, f);
-          if (m) modules.add(m);
-        }
         const hits = (res?.results ?? []).filter((h) => {
           if (moduleOf(root, h.file) !== targetModule) return false;
           if (typeof h.line !== "number" || h.line < 1) return false;
@@ -136,44 +153,68 @@ process.stdin.on("end", async () => {
           if (f === target && Math.abs(h.line - (d.start_line ?? 0)) <= 1) return false;
           return lineAt(fileLines(f) ?? [], h.line).includes(d.name);
         });
-        const files = new Set(hits.map((h) => norm(h.file)));
-        if (hits.length) anyVerified = true;
-        const sorted = [...hits].sort(
-          (a, b) =>
-            (lineWasRead(dir, norm(a.file), a.line) ? 1 : 0) -
-            (lineWasRead(dir, norm(b.file), b.line) ? 1 : 0)
-        );
-        const unreadCount = sorted.filter((h) => !lineWasRead(dir, norm(h.file), h.line)).length;
-        const shown = sorted.slice(0, MAX_SITES);
-        let section =
-          `- ${d.name} (${d.kind}:${d.start_line}) — ${hits.length} verified call site(s) in ${files.size} file(s), ${unreadCount} unread at call line:`;
-        if (shown.length) {
-          section +=
-            "\n" +
-            shown
-              .map(
-                (h) =>
-                  `    ${rel(root, norm(h.file))}:${h.line} (${
-                    lineWasRead(dir, norm(h.file), h.line) ? "read" : "unread"
-                  }) (${h.confidence ?? "unresolved"})`
-              )
-              .join("\n");
-          if (sorted.length > shown.length) section += `\n    ...${sorted.length - shown.length} more`;
+        const unread = hits.filter((h) => !lineWasRead(dir, norm(h.file), h.line));
+        if (unread.length) {
+          blockWorthy = true;
+          const shown = unread.slice(0, MAX_SITES);
+          unreadSections.push(
+            `- ${d.name} (${d.kind}:${d.start_line}), called at:\n` +
+              shown
+                .map((h) => `    ${rel(root, norm(h.file))}:${h.line} (${h.confidence ?? "unresolved"})`)
+                .join("\n") +
+              (unread.length > shown.length ? `\n    ...${unread.length - shown.length} more` : "")
+          );
         }
-        if (hits.length) sections.push(section);
+        const others = [...new Set((res?.defined_in ?? []).map((f) => norm(f)))]
+          .filter((f) => f !== target)
+          .filter((f) => {
+            const m = moduleOf(root, f);
+            return m && m !== targetModule;
+          });
+        if (others.length) {
+          const selfRaw = defText(lines, d);
+          if (selfRaw) {
+            const self = squash(selfRaw);
+            const diffModules = new Set();
+            const sameModules = new Set();
+            for (const f of others.slice(0, 4)) {
+              try {
+                const o = await q("cached_outline", { file: f });
+                const od =
+                  (o?.defs ?? []).find((x) => x.name === d.name && x.kind === d.kind) ??
+                  (o?.defs ?? []).find((x) => x.name === d.name);
+                const otherLines = od ? fileLines(f) : null;
+                const otherRaw = od && otherLines ? defText(otherLines, od) : null;
+                if (!otherRaw) continue;
+                (squash(otherRaw) === self ? sameModules : diffModules).add(moduleOf(root, f));
+              } catch {}
+            }
+            if (diffModules.size) {
+              blockWorthy = true;
+              driftNotes.push(
+                `- ${d.name}: body differs in ${[...diffModules].join(", ")}` +
+                  (sameModules.size ? ` (identical in ${[...sameModules].join(", ")})` : "") +
+                  ` — check whether this change should be ported`
+              );
+            }
+          }
+        }
       }
-      if (!anyVerified && modules.size <= 1) return null;
+      if (!blockWorthy) return null;
       for (const d of touched) markWarned(dir, `${target}::${d.name}`);
-
-      let out = `[tree-lens trace] ${rel(root, target) ?? target} edit touches:\n` + sections.join("\n");
-      if (modules.size > 1) {
-        out += `\nsame-named definitions in ${modules.size} modules: ${[...modules].join(", ")}`;
-      }
-      out += `\ninformational only; re-issue the same edit to proceed.`;
+      let out =
+        `[tree-lens gate] edit paused once to surface impact info — re-issue the SAME edit to proceed ` +
+        `(already recorded; the retry passes silently).\n${rel(root, target) ?? target}`;
+      if (unreadSections.length) out += `\ncall sites not read this session:\n` + unreadSections.join("\n");
+      if (driftNotes.length) out += `\ncross-module drift:\n` + driftNotes.join("\n");
+      out += `\n("not read" is ledger-based: full-file reads count as fully read; if you already know these, just re-issue.)`;
       return out;
     });
 
     if (!report) process.exit(0);
+    try {
+      appendFileSync(path.join(dir, "traces.log"), `[${new Date().toISOString()}] ${report}\n\n`);
+    } catch {}
     console.error(report);
     process.exit(2);
   } catch {}

@@ -83,15 +83,15 @@
 
 ## 先读后写门禁
 
-插件启用期间，三个 hook 在会话维度强制"先 Read 再写"（fail-open：hook 崩溃或超时时不拦截，照常放行）：
+插件启用期间，三个 hook 维护会话级已读状态并在编辑前后提供调用点上下文（fail-open：hook 崩溃或超时时不拦截，照常放行）：
 
 | Hook | 事件 | 行为 |
 |------|------|------|
 | `read-ledger.mjs` | PostToolUse（`Read`/`Edit`/`Write`/`Bash`） | 把会话触及的每个文件记入按会话隔离的 ledger |
-| `edit-gate.mjs` | PreToolUse（`Edit`/`Write`） | 拦截对本会话未 Read 过的已有文件的编辑；当文件内定义在未读过的调用方文件中存在调用点时，延迟一次编辑（项目尚无索引时顺带在后台触发构建） |
-| `bash-gate.mjs` | PreToolUse（`Bash`） | 拦截对未读过文件的 shell 写入（`>`、`>>`、`tee`、`sed -i`、`rm`、`mv`、`cp`） |
+| `edit-gate.mjs` | PreToolUse（`Edit`/`Write`） | 条件阻断：仅当编辑触及的定义存在本会话未读的已验证调用点、或其他模块同名定义的方法体已漂移（不一致）时，按符号拦截一次，原样重发即放行；调用点已读且副本一致时静默放行。trace 同时追加到会话 `traces.log`（callers 查询会在项目尚无索引时后台触发构建） |
+| `session-index-builder.mjs` | SessionStart | 后台构建工作区符号索引，加速后续查询 |
 
-新建文件始终豁免（目标尚不存在）。ledger 状态存于 `~/.kimi-code/tree-lens-gate/`，按 session id + cwd 隔离。
+新建文件始终豁免（目标尚不存在）。ledger 状态与编辑 trace 的 `traces.log` 都存于 `~/.kimi-code/tree-lens-gate/`，按 session id + cwd 隔离。
 
 ## 常见问题
 
