@@ -55,6 +55,36 @@ export function ledgerAdd(dir, paths) {
   writeJson(file, data);
 }
 
+export function ledgerAddReads(dir, entries) {
+  const file = path.join(dir, "read-ledger.json");
+  const data = readJson(file, { read: [], readRanges: {} });
+  const set = new Set(data.read);
+  data.readRanges = data.readRanges ?? {};
+  for (const e of entries) {
+    if (!e?.path) continue;
+    set.add(e.path);
+    if (Array.isArray(e.ranges) && e.ranges.length) {
+      const merged = new Set((data.readRanges[e.path] ?? []).map((r) => r.join("-")));
+      for (const r of e.ranges) {
+        if (Array.isArray(r) && r.length === 2 && Number.isFinite(r[0]) && Number.isFinite(r[1])) {
+          merged.add(`${r[0]}-${r[1]}`);
+        }
+      }
+      data.readRanges[e.path] = [...merged].map((s) => s.split("-").map(Number));
+    }
+  }
+  data.read = [...set];
+  writeJson(file, data);
+}
+
+export function lineWasRead(dir, p, line) {
+  const data = readJson(path.join(dir, "read-ledger.json"), { read: [], readRanges: {} });
+  if (!data.read.includes(p)) return false;
+  const ranges = data.readRanges?.[p];
+  if (!ranges || !ranges.length) return true;
+  return ranges.some(([s, e]) => line >= s && line <= (e === -1 ? Infinity : e));
+}
+
 export function ledgerHas(dir, p) {
   return readJson(path.join(dir, "read-ledger.json"), { read: [] }).read.includes(p);
 }

@@ -1,40 +1,62 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { spawn } from "node:child_process";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  acquireBuildLock,
   findProjectRoot,
   isWarned,
-  ledgerAdd,
-  ledgerHas,
+  lineWasRead,
   markWarned,
   norm,
-  readJson,
-  rootStateDir,
   sessionDir,
   storePaths,
 } from "./lib/state.mjs";
 
 const PLUGIN_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const MAX_DEFS_QUERIED = 5;
+const MAX_DEFS = 5;
+const MAX_SITES = 5;
 
 let input = "";
 process.stdin.on("data", (c) => (input += c));
 
 function rel(root, file) {
   const r = path.relative(root, file);
-  return r.startsWith("..") ? file : r;
+  return r.startsWith("..") ? null : r;
 }
 
-function block(msg) {
-  console.error(msg);
-  process.exit(2);
+function moduleOf(root, file) {
+  const r = rel(root, file);
+  return r ? r.split(path.sep)[0] : null;
 }
 
-async function queryImpact(target, root) {
+function indexRoot(fromDir) {
+  let dir = fromDir;
+  let best = null;
+  while (true) {
+    const n = norm(dir);
+    const store = storePaths(n);
+    if (existsSync(store.db) || existsSync(store.json)) best = n;
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return best;
+}
+
+function fileLines(file) {
+  try {
+    return readFileSync(file, "utf8").split(/\r?\n/);
+  } catch {
+    return null;
+  }
+}
+
+function lineAt(lines, line) {
+  return lines[line - 1] ?? "";
+}
+
+async function withClient(fn) {
   const transport = new StdioClientTransport({
     command: "node",
     args: [path.join(PLUGIN_ROOT, "server.js")],
@@ -44,20 +66,10 @@ async function queryImpact(target, root) {
   const client = new Client({ name: "tree-lens-edit-gate", version: "0.0.1" });
   await client.connect(transport);
   try {
-    const parse = (r) => JSON.parse(r.content[0].text);
-    const outline = parse(
-      await client.callTool({ name: "cached_outline", arguments: { file: target } })
-    );
-    const names = outline.ok && Array.isArray(outline.defs) ? outline.defs.map((d) => d.name) : [];
-    if (!names.length) return null;
-    const hits = [];
-    for (const name of names.slice(0, MAX_DEFS_QUERIED)) {
-      try {
-        const r = parse(await client.callTool({ name: "callers", arguments: { name, root } }));
-        if (r.ok) for (const h of r.results ?? []) hits.push(h);
-      } catch {}
-    }
-    return hits;
+    return await fn(async (name, args) => {
+      const r = await client.callTool({ name, arguments: args });
+      return JSON.parse(r.content[0].text);
+    });
   } finally {
     await client.close().catch(() => {});
   }
@@ -66,81 +78,104 @@ async function queryImpact(target, root) {
 process.stdin.on("end", async () => {
   try {
     const payload = JSON.parse(input || "{}");
-    const raw = payload.tool_input?.path;
-    if (typeof raw === "string") {
-      const target = norm(raw);
-      let isFile = false;
+    const ti = payload.tool_input ?? {};
+    const raw = ti.path ?? ti.file_path;
+    if (typeof raw !== "string") process.exit(0);
+    const target = norm(raw);
+    let isFile = false;
+    try {
+      isFile = statSync(target).isFile();
+    } catch {}
+    if (!isFile) process.exit(0);
+    const anchor = String(ti.old_string ?? "")
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .find((s) => s.length > 3);
+    if (!anchor) process.exit(0);
+    const lines = fileLines(target);
+    if (!lines) process.exit(0);
+    const root = indexRoot(path.dirname(target)) ?? findProjectRoot(path.dirname(target));
+    if (!root) process.exit(0);
+    const dir = sessionDir(payload);
+    const targetModule = moduleOf(root, target);
+
+    const report = await withClient(async (q) => {
+      let defs = [];
       try {
-        isFile = statSync(target).isFile();
+        const outline = await q("cached_outline", { file: target });
+        if (outline.ok && Array.isArray(outline.defs)) defs = outline.defs;
       } catch {}
-      if (isFile) {
-        const dir = sessionDir(payload);
-        if (!ledgerHas(dir, target)) {
-          block(
-            `[tree-lens edit-gate] Edit blocked (read-before-edit): ${target}\n` +
-              `This file has not been Read in this session. Read it first, then re-issue the same edit.\n` +
-              `(Writing a brand-new file is exempt — the target does not exist yet.)`
-          );
-        }
+      const touched = defs
+        .filter((d) => {
+          const s = d.start_line ?? 0;
+          const e = Math.min(d.end_line ?? s, lines.length);
+          for (let i = s; i <= e; i++) if (lineAt(lines, i).includes(anchor)) return true;
+          return false;
+        })
+        .filter((d) => !isWarned(dir, `${target}::${d.name}`))
+        .slice(0, MAX_DEFS);
+      if (!touched.length) return null;
+
+      const sections = [];
+      const modules = new Set();
+      let anyVerified = false;
+      for (const d of touched) {
+        let res = null;
         try {
-          ledgerAdd(dir, [target]);
+          res = await q("callers", { name: d.name, root, limit: 200 });
         } catch {}
-        if (!isWarned(dir, target)) {
-          const root = findProjectRoot(path.dirname(target));
-          if (root) {
-            const store = storePaths(root);
-            if (existsSync(store.json)) {
-              // JSON store: skip to avoid concurrent-write scenarios entirely
-            } else if (!existsSync(store.db)) {
-              const stateDir = rootStateDir(root);
-              if (acquireBuildLock(path.join(stateDir, "build.lock"))) {
-                spawn(
-                  "node",
-                  [path.join(PLUGIN_ROOT, "hooks", "index-build-child.mjs"), root, stateDir],
-                  { detached: true, stdio: "ignore", env: process.env }
-                ).unref();
-              }
-              const state = readJson(path.join(stateDir, "build-state.json"), null);
-              if (state?.status !== "failed") {
-                block(
-                  `[tree-lens edit-gate] Edit deferred: the workspace index for this project is being built in the background (index_workspace).\n` +
-                    `Re-issue the same edit in a moment; if it keeps being blocked, run the index_workspace tool manually to check progress.`
-                );
-              }
-            } else {
-              const hits = await queryImpact(target, root);
-              if (hits && hits.length) {
-                const callerFiles = [...new Set(hits.map((h) => norm(h.file)))];
-                const unread = callerFiles.filter((f) => f !== target && !ledgerHas(dir, f));
-                if (unread.length) {
-                  markWarned(dir, target);
-                  const sorted = [...hits].sort(
-                    (a, b) =>
-                      (a.confidence === "exact" ? 0 : 1) - (b.confidence === "exact" ? 0 : 1)
-                  );
-                  const top = sorted
-                    .filter((h) => unread.includes(norm(h.file)))
-                    .slice(0, 3)
-                    .map(
-                      (h) =>
-                        `  - ${rel(root, norm(h.file))}:${h.line} calls ${h.caller ?? h.name} (${h.confidence ?? "?"})`
-                    );
-                  block(
-                    `[tree-lens edit-gate] Edit deferred once: ${rel(root, target)}\n` +
-                      `Definitions in this file have ${hits.length} call site(s) across ${callerFiles.length} file(s); ${unread.length} caller file(s) not read in this session:\n` +
-                      top.join("\n") +
-                      `\n...remaining omitted\n` +
-                      `If this change touches signatures/behavior/return values: Read the unread callers first, or verify with the callers tool.\n` +
-                      `If it is comments/formatting only: ignore this notice.\n` +
-                      `Then re-issue the same edit to proceed.`
-                  );
-                }
-              }
-            }
-          }
+        for (const f of res?.defined_in ?? []) {
+          const m = moduleOf(root, f);
+          if (m) modules.add(m);
         }
+        const hits = (res?.results ?? []).filter((h) => {
+          if (moduleOf(root, h.file) !== targetModule) return false;
+          if (typeof h.line !== "number" || h.line < 1) return false;
+          if (rel(root, norm(h.file)) === null) return false;
+          const f = norm(h.file);
+          if (f === target && Math.abs(h.line - (d.start_line ?? 0)) <= 1) return false;
+          return lineAt(fileLines(f) ?? [], h.line).includes(d.name);
+        });
+        const files = new Set(hits.map((h) => norm(h.file)));
+        if (hits.length) anyVerified = true;
+        const sorted = [...hits].sort(
+          (a, b) =>
+            (lineWasRead(dir, norm(a.file), a.line) ? 1 : 0) -
+            (lineWasRead(dir, norm(b.file), b.line) ? 1 : 0)
+        );
+        const unreadCount = sorted.filter((h) => !lineWasRead(dir, norm(h.file), h.line)).length;
+        const shown = sorted.slice(0, MAX_SITES);
+        let section =
+          `- ${d.name} (${d.kind}:${d.start_line}) — ${hits.length} verified call site(s) in ${files.size} file(s), ${unreadCount} unread at call line:`;
+        if (shown.length) {
+          section +=
+            "\n" +
+            shown
+              .map(
+                (h) =>
+                  `    ${rel(root, norm(h.file))}:${h.line} (${
+                    lineWasRead(dir, norm(h.file), h.line) ? "read" : "unread"
+                  }) (${h.confidence ?? "unresolved"})`
+              )
+              .join("\n");
+          if (sorted.length > shown.length) section += `\n    ...${sorted.length - shown.length} more`;
+        }
+        if (hits.length) sections.push(section);
       }
-    }
+      if (!anyVerified && modules.size <= 1) return null;
+      for (const d of touched) markWarned(dir, `${target}::${d.name}`);
+
+      let out = `[tree-lens trace] ${rel(root, target) ?? target} edit touches:\n` + sections.join("\n");
+      if (modules.size > 1) {
+        out += `\nsame-named definitions in ${modules.size} modules: ${[...modules].join(", ")}`;
+      }
+      out += `\ninformational only; re-issue the same edit to proceed.`;
+      return out;
+    });
+
+    if (!report) process.exit(0);
+    console.error(report);
+    process.exit(2);
   } catch {}
   process.exit(0);
 });

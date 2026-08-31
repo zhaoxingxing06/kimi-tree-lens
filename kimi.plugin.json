@@ -1,6 +1,6 @@
 {
   "name": "tree-lens",
-  "version": "2.2.1",
+  "version": "2.2.2",
   "description": "Syntax-tree X-ray for Kimi Code: structural code navigation via tree-sitter (WASM)",
   "keywords": [
     "tree-sitter",
@@ -24,20 +24,19 @@
   },
   "hooks": [
     {
+      "event": "SessionStart",
+      "command": "node ./hooks/session-index-builder.mjs",
+      "timeout": 10
+    },
+    {
       "event": "PreToolUse",
       "matcher": "Edit|Write",
       "command": "node ./hooks/edit-gate.mjs",
       "timeout": 30
     },
     {
-      "event": "PreToolUse",
-      "matcher": "Bash",
-      "command": "node ./hooks/bash-gate.mjs",
-      "timeout": 10
-    },
-    {
       "event": "PostToolUse",
-      "matcher": "Read|Edit|Write|Bash",
+      "matcher": "Read|Edit|Write|Bash|Grep|Glob",
       "command": "node ./hooks/read-ledger.mjs",
       "timeout": 10
     }
