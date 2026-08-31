@@ -93,6 +93,25 @@
 
 新建文件始终豁免（目标尚不存在）。ledger 状态与编辑 trace 的 `traces.log` 都存于 `~/.kimi-code/tree-lens-gate/`，按 session id + cwd 隔离。
 
+拦截时模型收到的信封格式参考（示例数据均为占位）：
+
+```text
+[tree-lens gate] edit paused once to surface impact info — re-issue the SAME edit to proceed (already recorded; the retry passes silently).
+src/order/service.ts
+call sites not read this session:
+- calcTotal (function:120), called at:
+    src/order/checkout.ts:88 (exact)
+    src/order/invoice.ts:45 (exact)
+cross-module drift:
+- calcTotal: body differs in module-a, module-b (identical in module-c) — check whether this change should be ported
+("not read" is ledger-based: full-file reads count as fully read; if you already know these, just re-issue.)
+```
+
+- 首行即动作：原样重发同一编辑即放行（每符号每次会话最多拦一次）
+- `call sites not read this session`：本会话尚未读到的已验证调用点
+- `cross-module drift`：其他模块同名定义的方法体已不一致；副本全一致时该段不出现
+- 两段均为空时不拦截，编辑直接通过
+
 ## 常见问题
 
 | 现象 | 处理 |

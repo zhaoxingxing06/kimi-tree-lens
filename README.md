@@ -94,6 +94,25 @@ While the plugin is enabled, three hooks maintain per-session read state and sur
 
 Writing a brand-new file is always exempt (the target does not exist yet). Ledger state and the edit-trace `traces.log` live under `~/.kimi-code/tree-lens-gate/`, keyed by session id + cwd.
 
+Envelope the model receives on a block (placeholder data):
+
+```text
+[tree-lens gate] edit paused once to surface impact info — re-issue the SAME edit to proceed (already recorded; the retry passes silently).
+src/order/service.ts
+call sites not read this session:
+- calcTotal (function:120), called at:
+    src/order/checkout.ts:88 (exact)
+    src/order/invoice.ts:45 (exact)
+cross-module drift:
+- calcTotal: body differs in module-a, module-b (identical in module-c) — check whether this change should be ported
+("not read" is ledger-based: full-file reads count as fully read; if you already know these, just re-issue.)
+```
+
+- First line is the action: re-issue the same edit to proceed (at most one block per symbol per session)
+- `call sites not read this session`: verified call sites the session has not read yet
+- `cross-module drift`: same-named definitions in other modules whose bodies differ; omitted when all copies are identical
+- When both sections are empty the edit passes silently
+
 ## Troubleshooting
 
 | Symptom | Fix |
